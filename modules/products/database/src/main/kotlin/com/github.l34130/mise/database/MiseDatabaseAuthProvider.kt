@@ -41,6 +41,7 @@ class MiseDatabaseAuthProvider : DatabaseAuthProvider {
         val envVars =
             MiseCommandLineHelper
                 .getEnvVarsAsync(
+                    project = proto.project,
                     workDir = proto.project.basePath ?: ProjectUtil.getBaseDir(),
                     configEnvironment = settings.miseConfigEnvironment,
                 ).getOrThrow()

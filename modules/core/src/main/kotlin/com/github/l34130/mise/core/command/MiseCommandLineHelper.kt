@@ -1,27 +1,30 @@
 package com.github.l34130.mise.core.command
 
+import com.intellij.openapi.project.Project
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 
 object MiseCommandLineHelper {
     // mise env
     @RequiresBackgroundThread
     fun getEnvVars(
+        project: Project,
         workDir: String?,
         configEnvironment: String?,
     ): Result<Map<String, String>> {
         val commandLineArgs = mutableListOf("env", "--json")
 
-        val miseCommandLine = MiseCommandLine(workDir, configEnvironment)
+        val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
         return miseCommandLine.runCommandLine(commandLineArgs)
     }
 
     // mise env
     @RequiresBackgroundThread
     fun getEnvVarsExtended(
+        project: Project,
         workDir: String?,
         configEnvironment: String?,
     ): Result<Map<String, MiseEnvExtended>> {
-        val miseCommandLine = MiseCommandLine(workDir, configEnvironment)
+        val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
 
         val envs =
             miseCommandLine
@@ -48,24 +51,26 @@ object MiseCommandLineHelper {
     }
 
     suspend fun getEnvVarsAsync(
+        project: Project,
         workDir: String?,
         configEnvironment: String?,
     ): Result<Map<String, String>> {
         val commandLineArgs = mutableListOf("env", "--json")
 
-        val miseCommandLine = MiseCommandLine(workDir, configEnvironment)
+        val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
         return miseCommandLine.runCommandLineAsync(commandLineArgs)
     }
 
     // mise ls
     @RequiresBackgroundThread
     fun getDevTools(
+        project: Project,
         workDir: String?,
         configEnvironment: String?,
     ): Result<Map<MiseDevToolName, List<MiseDevTool>>> {
         val commandLineArgs = mutableListOf("ls", "--local", "--json")
 
-        val miseCommandLine = MiseCommandLine(workDir, configEnvironment)
+        val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
         return miseCommandLine
             .runCommandLine<Map<String, List<MiseDevTool>>>(commandLineArgs)
             .map { devTools ->
@@ -76,57 +81,76 @@ object MiseCommandLineHelper {
     // mise task ls
     @RequiresBackgroundThread
     fun getTasks(
+        project: Project,
         workDir: String?,
         configEnvironment: String?,
     ): Result<List<MiseTask>> {
         val commandLineArgs = mutableListOf("task", "ls", "--json")
 
-        val miseCommandLine = MiseCommandLine(workDir, configEnvironment)
+        val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
         return miseCommandLine.runCommandLine(commandLineArgs)
     }
 
     // mise config get
     @RequiresBackgroundThread
     fun getConfig(
+        project: Project,
         workDir: String?,
         configEnvironment: String?,
         key: String,
     ): Result<String> {
         val commandLineArgs = mutableListOf("config", "get", key)
 
-        val miseCommandLine = MiseCommandLine(workDir, configEnvironment)
+        val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
         return miseCommandLine.runRawCommandLine(commandLineArgs)
     }
 
     // mise config --tracked-configs
     @RequiresBackgroundThread
-    fun getTrackedConfigs(): Result<List<String>> {
+    fun getTrackedConfigs(
+        project: Project,
+        configEnvironment: String,
+    ): Result<List<String>> {
         val commandLineArgs = mutableListOf("config", "--tracked-configs")
-        val miseCommandLine = MiseCommandLine(null, null)
+
+        // Use project's base path as working directory to ensure correct mise context
+        // (Windows mise for Windows projects, WSL mise for WSL projects)
+        val workDir = project.basePath
+
+        val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
         return miseCommandLine
             .runRawCommandLine(commandLineArgs)
-            .map { it.lines().map { it.trim() }.filter { it.isNotEmpty() } }
+            .map { it.lines().map { line -> line.trim() }.filter { trimmed -> trimmed.isNotEmpty() } }
     }
 
     // mise exec
     @RequiresBackgroundThread
     fun executeCommand(
+        project: Project,
         workDir: String?,
         configEnvironment: String?,
         command: List<String>,
     ): Result<String> {
         val commandLineArgs = mutableListOf("exec", "--") + command
 
-        val miseCommandLine = MiseCommandLine(workDir, configEnvironment)
+        val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
         return miseCommandLine.runRawCommandLine(commandLineArgs)
     }
 
     // mise trust
     @RequiresBackgroundThread
-    fun trustConfigFile(configFilePath: String): Result<Unit> {
+    fun trustConfigFile(
+        project: Project,
+        configFilePath: String,
+        configEnvironment: String,
+    ): Result<Unit> {
         val commandLineArgs = mutableListOf("trust", configFilePath)
 
-        val miseCommandLine = MiseCommandLine(null, null)
+        // Use project's base path as working directory to ensure correct mise context
+        // (Windows mise for Windows projects, WSL mise for WSL projects)
+        val workDir = project.basePath
+
+        val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
         return miseCommandLine.runCommandLine(commandLineArgs)
     }
 }

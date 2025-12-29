@@ -3,14 +3,14 @@ package com.github.l34130.mise.core.command
 import com.fasterxml.jackson.core.type.TypeReference
 import com.github.benmanes.caffeine.cache.Caffeine
 import com.github.l34130.mise.core.setting.MiseApplicationSettings
+import com.github.l34130.mise.core.setting.MiseProjectSettings
 import com.github.l34130.mise.core.wsl.WslCommandHelper
-import com.github.l34130.mise.core.wsl.WslPathUtils
 import com.intellij.execution.ExecutionException
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.util.ExecUtil
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.util.SystemInfo
+import com.intellij.openapi.project.Project
 import com.intellij.util.application
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +19,7 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.time.toJavaDuration
 
 internal class MiseCommandLine(
+    private val project: Project,
     private val workDir: String? = null,
     private val configEnvironment: String? = null,
 ) {
@@ -71,12 +72,24 @@ internal class MiseCommandLine(
 
     @RequiresBackgroundThread
     fun runRawCommandLine(params: List<String>): Result<String> {
+        logger.debug("==> [COMMAND] Starting command execution (workDir: $workDir, params: $params)")
+
         val miseVersion = getMiseVersion()
 
-        val settings = application.service<MiseApplicationSettings>()
-        val executablePath = settings.state.executablePath
-        val commandLineArgs = executablePath.split(' ').toMutableList()
+        // Determine executable path with project override support
+        val executablePath = determineExecutablePath()
 
+        // Build command line arguments
+        val commandLineArgs = mutableListOf<String>()
+
+        // Handle executable path (may contain spaces like "wsl.exe -d Ubuntu mise")
+        if (executablePath.contains(' ')) {
+            commandLineArgs.addAll(executablePath.split(' '))
+        } else {
+            commandLineArgs.add(executablePath)
+        }
+
+        // Add mise configuration environment parameter
         if (!configEnvironment.isNullOrBlank()) {
             if (miseVersion >= MiseVersion(2024, 12, 2)) {
                 commandLineArgs.add("--env")
@@ -87,42 +100,86 @@ internal class MiseCommandLine(
             }
         }
 
-        commandLineArgs.addAll(params)
+        // Transform path parameters if in WSL context
+        val transformedParams = transformPathParameters(params, executablePath)
+        commandLineArgs.addAll(transformedParams)
 
-        // Use IntelliJ WSL API when in WSL mode or when the executable/workDir indicate WSL
-        val isWslContext =
-            SystemInfo.isWindows &&
-                (settings.state.isWslMode ||
-                    WslPathUtils.detectWslMode(executablePath) ||
-                    (workDir != null && WslPathUtils.detectWslMode(workDir)))
+        // Let GeneralCommandLine handle WSL execution via Eel
+        return runCommandLineInternal(commandLineArgs, workDir)
+    }
 
-        if (isWslContext) {
-            val distribution =
-                WslCommandHelper.resolveDistribution(settings.state)
-                    ?: WslCommandHelper.resolveDistributionFromPath(workDir)
+    /**
+     * Determine which mise executable to use, with proper fallback chain.
+     *
+     * Priority: Project setting → App setting → "mise" (PATH)
+     *
+     * Note: Auto-detection has been removed from runtime. Users should either:
+     * 1. Have mise in PATH (recommended)
+     * 2. Configure explicit path in settings
+     */
+    private fun determineExecutablePath(): String {
+        val projectSettings = project.service<MiseProjectSettings>()
+        val appSettings = application.service<MiseApplicationSettings>()
 
-            if (distribution != null) {
-                logger.info("WSL detected for command. distro=${distribution.msId} workDir=$workDir exePath=$executablePath params=$params")
-                val linuxExe =
-                    if (settings.state.isWslMode || WslPathUtils.detectWslMode(executablePath)) WslCommandHelper.linuxExecutableFromConfig(executablePath)
-                    else "mise"
-                val linuxWorkDir = WslCommandHelper.toLinuxWorkDir(distribution, workDir)
+        // Priority 1: Explicit configuration (project or app level)
+        val configuredPath = projectSettings.state.executablePath.takeIf { it.isNotEmpty() }
+            ?: appSettings.state.executablePath.takeIf { it.isNotEmpty() }
 
-                val linuxCommand = mutableListOf<String>()
-                linuxCommand.add(linuxExe)
-                linuxCommand.addAll(params)
+        if (configuredPath != null) {
+            logger.info("==> [EXECUTABLE] Using configured path: $configuredPath")
+            logger.debug("==> [EXECUTABLE] Project setting: ${projectSettings.state.executablePath}")
+            logger.debug("==> [EXECUTABLE] App setting: ${appSettings.state.executablePath}")
+            return configuredPath
+        }
 
-                return try {
-                    logger.info("WSL command: distro=${distribution.msId} workDir=$workDir linuxWorkDir=$linuxWorkDir exe=$linuxExe args=$params")
-                    val cmd = WslCommandHelper.buildWslCommandLine(distribution, linuxCommand, linuxWorkDir)
-                    runCommandLineInternal(cmd)
-                } catch (e: ExecutionException) {
-                    Result.failure(e)
+        // Priority 2: Use "mise" from PATH
+        // For Windows projects: finds Windows mise
+        // For WSL projects (UNC workDir): GeneralCommandLine+Eel finds mise in correct WSL distribution
+        val contextDesc = when {
+            workDir == null -> "default"
+            workDir.startsWith("//wsl.localhost/") || workDir.startsWith("\\\\wsl.localhost\\") -> "WSL"
+            else -> "Windows"
+        }
+        logger.debug("==> [EXECUTABLE] Using 'mise' from PATH (context: $contextDesc, workDir: $workDir)")
+        return "mise"
+    }
+
+    /**
+     * Transform path parameters from UNC to POSIX if needed.
+     *
+     * When executing in WSL, mise receives Windows UNC paths from IntelliJ,
+     * but mise expects POSIX paths. We need to convert path arguments.
+     */
+    private fun transformPathParameters(params: List<String>, executablePath: String): List<String> {
+        // Check if we're in WSL context
+        val execIsWslUnc = WslCommandHelper.isWslUncPath(executablePath)
+        val workDirIsWslUnc = WslCommandHelper.isWslUncPath(workDir)
+        val execContainsWsl = executablePath.contains("wsl.exe", ignoreCase = true) ||
+                              executablePath.startsWith("wsl ", ignoreCase = true)
+
+        val isWslContext = execIsWslUnc || workDirIsWslUnc || execContainsWsl
+
+        logger.debug("==> [PATH TRANSFORM] isWslContext: $isWslContext (exec: $executablePath, workDir: $workDir)")
+
+        if (!isWslContext) {
+            return params  // No transformation needed for Windows native
+        }
+
+        // Transform parameters that look like paths
+        val transformed = params.map { param ->
+            // Heuristic: if it contains path separators, try to convert it
+            if (param.contains('\\') || (param.contains('/') && param.length > 3)) {
+                val converted = WslCommandHelper.convertPathParameterForWsl(param)
+                if (converted != param) {
+                    logger.info("==> [PATH TRANSFORM] Converted: '$param' -> '$converted'")
                 }
+                converted
+            } else {
+                param
             }
         }
 
-        return runCommandLineInternal(commandLineArgs, workDir)
+        return transformed
     }
 
     @RequiresBackgroundThread
@@ -138,9 +195,10 @@ internal class MiseCommandLine(
     private fun runCommandLineInternal(
         generalCommandLine: GeneralCommandLine,
     ): Result<String> {
+        logger.debug("==> [EXEC] ${generalCommandLine.commandLineString} (workDir: ${generalCommandLine.workDirectory})")
+
         val processOutput =
             try {
-                logger.debug("Running command: ${generalCommandLine.commandLineString}")
                 ExecUtil.execAndGetOutput(generalCommandLine, 3000)
             } catch (e: ExecutionException) {
                 logger.info("Failed to execute command. (command=$generalCommandLine)", e)
@@ -181,35 +239,35 @@ internal class MiseCommandLine(
         return Result.success(processOutput.stdout)
     }
 
+    @RequiresBackgroundThread
+    private fun getMiseVersion(): MiseVersion {
+        val executablePath = determineExecutablePath()
+        val cacheKey = "version:$executablePath:$workDir"
+        val cached: MiseVersion? = commandCache.getIfPresent(cacheKey) as? MiseVersion
+        if (cached != null) return cached
+
+        val versionString = runCommandLineInternal(listOf(executablePath, "version"))
+
+        val miseVersion =
+            versionString.fold(
+                onSuccess = {
+                    MiseVersion.parse(it)
+                },
+                onFailure = { _ ->
+                    MiseVersion(0, 0, 0)
+                },
+            )
+
+        commandCache.put(cacheKey, miseVersion)
+        return miseVersion
+    }
+
     companion object {
         private val commandCache =
             Caffeine
                 .newBuilder()
                 .expireAfterWrite(5.seconds.toJavaDuration())
                 .build<String, Any>()
-
-        @RequiresBackgroundThread
-        fun getMiseVersion(): MiseVersion {
-            val cached: MiseVersion? = commandCache.getIfPresent("version") as? MiseVersion
-            if (cached != null) return cached
-
-            val miseCommandLine = MiseCommandLine()
-            val miseExecutable = application.service<MiseApplicationSettings>().state.executablePath
-            val versionString = miseCommandLine.runCommandLineInternal(listOf(miseExecutable, "version"))
-
-            val miseVersion =
-                versionString.fold(
-                    onSuccess = {
-                        MiseVersion.parse(it)
-                    },
-                    onFailure = { _ ->
-                        MiseVersion(0, 0, 0)
-                    },
-                )
-
-            commandCache.put("version", miseVersion)
-            return miseVersion
-        }
 
         private val logger = Logger.getInstance(MiseCommandLine::class.java)
     }

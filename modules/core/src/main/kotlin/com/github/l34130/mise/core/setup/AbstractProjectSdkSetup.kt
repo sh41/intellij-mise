@@ -66,7 +66,7 @@ abstract class AbstractProjectSdkSetup :
                 return@executeOnPooledThread
             }
             val toolsResult =
-                MiseCommandLineHelper.getDevTools(workDir = project.basePath, configEnvironment = configEnvironment)
+                MiseCommandLineHelper.getDevTools(project = project, workDir = project.basePath, configEnvironment = configEnvironment)
             val tools =
                 toolsResult.fold(
                     onSuccess = { tools -> tools[devToolName] },
@@ -210,6 +210,7 @@ abstract class AbstractProjectSdkSetup :
         // 2. The operation is fast (just checking if tool is configured)
         // 3. We need to call a suspend function from a non-suspend context
         val toolsResult = MiseCommandLineHelper.getDevTools(
+            project = project,
             workDir = basePath,
             configEnvironment = configEnvironment
         )

@@ -32,7 +32,7 @@ class MiseVcsEnvCustomizer : VcsEnvCustomizer() {
             val miseEnvsResult =
                 runBlocking {
                     withBackgroundProgress(project, "Mise: Getting EnvVars") {
-                        MiseCommandLineHelper.getEnvVars(project.basePath, miseProjectSettings.miseConfigEnvironment)
+                        MiseCommandLineHelper.getEnvVars(project, project.basePath, miseProjectSettings.miseConfigEnvironment)
                     }
                 }
 
