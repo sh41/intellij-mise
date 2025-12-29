@@ -56,7 +56,14 @@ class MiseErrorReportSubmitter : ErrorReportSubmitter() {
                             appendLine("### Environment")
                             appendLine("- IDE: ${applicationNamesInfo.productName} ${appInfo.fullVersion}")
                             appendLine("- Plugin: ${pluginDescriptor.name} ${pluginDescriptor.version}")
-                            appendLine("- Mise: mise@${MiseCommandLine.getMiseVersion()}")
+                            val miseVersion = try {
+                                val cmdLine = MiseCommandLine(project, project.basePath, null)
+                                val result = cmdLine.runRawCommandLine(listOf("version"))
+                                result.getOrNull()?.trim() ?: "unknown"
+                            } catch (e: Exception) {
+                                "error: ${e.message}"
+                            }
+                            appendLine("- Mise: $miseVersion")
                             appendLine("- OS: ${System.getProperty("os.name")} ${System.getProperty("os.version")}")
 
                             appendLine()
