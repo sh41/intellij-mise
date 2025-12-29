@@ -25,13 +25,13 @@ class MiseServiceTest : BasePlatformTestCase() {
         val tasks = runBlocking { service.getMiseTasks() }
 
         listOf<TestResult>(
-            TestResult("default-inline-table-task", "mise.toml", MiseTomlTableTask::class),
-            TestResult("default-table-task", "mise.toml", MiseTomlTableTask::class),
-            TestResult("lint", "mise.toml", MiseTomlTableTask::class),
-            TestResult("lint:test1", "xtasks/lint/test1", MiseShellScriptTask::class),
-            TestResult("lint:test2", "xtasks/lint/test2", MiseShellScriptTask::class),
-            TestResult("xtask", "xtasks/xtask.sh", MiseShellScriptTask::class),
-            TestResult("task-in-test-config", "mise.test.toml", MiseTomlTableTask::class),
+            TestResult("default-inline-table-task", "/src/mise.toml", MiseTomlTableTask::class),
+            TestResult("default-table-task", "/src/mise.toml", MiseTomlTableTask::class),
+            TestResult("lint", "/src/mise.toml", MiseTomlTableTask::class),
+            TestResult("lint:test1", "/src/xtasks/lint/test1", MiseShellScriptTask::class),
+            TestResult("lint:test2", "/src/xtasks/lint/test2", MiseShellScriptTask::class),
+            TestResult("xtask", "/src/xtasks/xtask.sh", MiseShellScriptTask::class),
+            TestResult("task-in-test-config", "/src/mise.test.toml", MiseTomlTableTask::class),
         ).forEach { (name, source, type) ->
             val task = tasks.find { it.name == name }
             assertNotNull("Task '$name' not found", task)
@@ -50,7 +50,7 @@ class MiseServiceTest : BasePlatformTestCase() {
         File(testDataPath)
             .walk()
             .filter { it.isFile }
-            .map { it.path.substringAfter("$testDataPath/") }
+            .map { it.relativeTo(File(testDataPath)).path.replace('\\', '/') }
             .toList()
             .toTypedArray()
 }
