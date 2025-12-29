@@ -246,7 +246,16 @@ internal class MiseCommandLine(
         val cached: MiseVersion? = commandCache.getIfPresent(cacheKey) as? MiseVersion
         if (cached != null) return cached
 
-        val versionString = runCommandLineInternal(listOf(executablePath, "version"))
+        // Handle executable path that may contain spaces (e.g., "wsl.exe -d Ubuntu mise")
+        val command = mutableListOf<String>()
+        if (executablePath.contains(' ')) {
+            command.addAll(executablePath.split(' '))
+        } else {
+            command.add(executablePath)
+        }
+        command.add("version")
+
+        val versionString = runCommandLineInternal(command)
 
         val miseVersion =
             versionString.fold(
