@@ -5,14 +5,20 @@ import com.github.benmanes.caffeine.cache.Caffeine
 import com.github.l34130.mise.core.command.MiseCommandLineException
 import com.github.l34130.mise.core.command.MiseCommandLineHelper
 import com.github.l34130.mise.core.command.MiseCommandLineNotTrustedConfigFileException
+import com.github.l34130.mise.core.setting.MiseProjectSettings
 import com.intellij.notification.NotificationAction
+import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.guessProjectForFile
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.openapi.vfs.VirtualFileManager
 import org.jetbrains.concurrency.runAsync
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.toJavaDuration
 
 object MiseNotificationServiceUtils {
+    private val logger = logger<MiseNotificationServiceUtils>()
     private val debounceMap: Cache<String, Any> =
         Caffeine
             .newBuilder()
@@ -30,10 +36,14 @@ object MiseNotificationServiceUtils {
             is MiseCommandLineException -> {
                 when (throwable) {
                     is MiseCommandLineNotTrustedConfigFileException -> {
-                        if (debounceMap.getIfPresent(MiseCommandLineNotTrustedConfigFileException::class.simpleName!!) != null) {
-                            // Debounce duplicate notifications
+                        val debounceKey = "untrusted:${throwable.configFilePath}"
+                        logger.debug("==> [DEBOUNCE] Checking debounce for key: $debounceKey")
+                        if (debounceMap.getIfPresent(debounceKey) != null) {
+                            logger.debug("==> [DEBOUNCE] Suppressed duplicate notification for: ${throwable.configFilePath}")
                             return
                         }
+                        logger.debug("==> [DEBOUNCE] Showing notification and caching key: $debounceKey")
+                        debounceMap.put(debounceKey, Unit)
 
                         notificationService.warn(
                             "Config file is not trusted.",
@@ -45,10 +55,18 @@ object MiseNotificationServiceUtils {
                                 "`mise trust`",
                             ) {
                                 val absolutePath = FileUtil.expandUserHome(throwable.configFilePath)
+                                logger.debug("Trust action triggered for: ${throwable.configFilePath}")
 
                                 runAsync {
+                                    // Try to guess which project the config file belongs to
+                                    val vf = VirtualFileManager.getInstance().findFileByUrl("file://$absolutePath")
+                                    val guessedProject = vf?.let { guessProjectForFile(it) } ?: project
+
+                                    // Get the config environment from the project settings
+                                    val configEnvironment = guessedProject.service<MiseProjectSettings>().state.miseConfigEnvironment
+
                                     MiseCommandLineHelper
-                                        .trustConfigFile(absolutePath)
+                                        .trustConfigFile(guessedProject, absolutePath, configEnvironment)
                                         .onSuccess {
                                             notificationService.info(
                                                 "Config file trusted",

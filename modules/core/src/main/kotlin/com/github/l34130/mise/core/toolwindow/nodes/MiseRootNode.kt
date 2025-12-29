@@ -5,6 +5,7 @@ import com.github.l34130.mise.core.command.MiseCommandLineHelper
 import com.github.l34130.mise.core.command.MiseDevTool
 import com.github.l34130.mise.core.command.MiseDevToolName
 import com.github.l34130.mise.core.model.MiseTask
+import com.github.l34130.mise.core.notification.MiseNotificationServiceUtils
 import com.github.l34130.mise.core.setting.MiseProjectSettings
 import com.intellij.ide.impl.ProjectUtil
 import com.intellij.ide.projectView.PresentationData
@@ -33,6 +34,7 @@ class MiseRootNode(
                 onSuccess = { tools -> MiseToolServiceNode(project, tools) },
                 onFailure = { e ->
                     logger.warn("Failed to get tool nodes", e)
+                    MiseNotificationServiceUtils.notifyException("Failed to get tool nodes", e, project)
                     MiseErrorNode(project, e)
                 },
             ),
@@ -40,6 +42,7 @@ class MiseRootNode(
                 onSuccess = { tasks -> MiseTaskServiceNode(project, tasks) },
                 onFailure = { e ->
                     logger.warn("Failed to get task nodes", e)
+                    MiseNotificationServiceUtils.notifyException("Failed to get task nodes", e, project)
                     MiseErrorNode(project, e)
                 },
             ),
@@ -47,6 +50,7 @@ class MiseRootNode(
                 onSuccess = { envs -> MiseEnvironmentServiceNode(project, envs) },
                 onFailure = { e ->
                     logger.warn("Failed to get settings nodes", e)
+                    MiseNotificationServiceUtils.notifyException("Failed to get environment nodes", e, project)
                     MiseErrorNode(project, e)
                 },
             ),
@@ -57,6 +61,7 @@ class MiseRootNode(
         val toolsByToolNames =
             MiseCommandLineHelper
                 .getDevTools(
+                    project = project,
                     workDir = project.basePath,
                     configEnvironment = settings.state.miseConfigEnvironment,
                 ).getOrThrow()
@@ -83,6 +88,7 @@ class MiseRootNode(
         val envs =
             MiseCommandLineHelper
                 .getEnvVarsExtended(
+                    project = project,
                     workDir = project.basePath,
                     configEnvironment = settings.state.miseConfigEnvironment,
                 ).getOrThrow()
@@ -134,7 +140,9 @@ class MiseRootNode(
         nodes += projectDirNode
 
         // --- Sub Directories ---
-        val trackedConfigs = MiseCommandLineHelper.getTrackedConfigs().getOrElse { emptyList() }
+        val trackedConfigs = MiseCommandLineHelper.getTrackedConfigs(project, configEnvironment)
+            .onFailure { MiseNotificationServiceUtils.notifyException("Failed to get tracked configs", it, project) }
+            .getOrElse { emptyList() }
         val subDirs: List<String> =
             trackedConfigs
                 .filter { it.startsWith(projectBaseDir) }
