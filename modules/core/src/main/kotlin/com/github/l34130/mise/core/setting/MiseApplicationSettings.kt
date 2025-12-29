@@ -1,11 +1,11 @@
 package com.github.l34130.mise.core.setting
 
-import com.github.l34130.mise.core.wsl.WslPathUtils
 import com.intellij.execution.Platform
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.util.EnvironmentUtil
@@ -24,43 +24,36 @@ class MiseApplicationSettings : PersistentStateComponent<MiseApplicationSettings
 
     override fun loadState(state: MyState) {
         myState = state.clone()
-        // Recalculate WSL settings in case the environment changed
-        updateWslSettings(myState)
+
+        // Migration: Clear old WSL auto-discovered paths if they exist
+        if (SystemInfo.isWindows && myState.executablePath.contains("wsl.exe")) {
+            logger.info("Migrating old WSL executable setting. Clearing to use PATH default.")
+            myState.executablePath = ""
+        }
     }
 
     override fun noStateLoaded() {
-        myState =
-            MyState().also {
-                it.executablePath = getMiseExecutablePath() ?: ""
-                updateWslSettings(it)
-            }
+        myState = MyState()  // Just use empty defaults
     }
 
     override fun initializeComponent() {
-        // Fill in executable path if empty, but don't replace the loaded state
-        if (myState.executablePath.isEmpty()) {
-            myState.executablePath = getMiseExecutablePath() ?: ""
-            updateWslSettings(myState)
-        }
+        // Don't auto-populate - let it stay empty
     }
-
-    private fun updateWslSettings(state: MyState) {
-        if (!SystemInfo.isWindows) {
-            state.isWslMode = false
-            state.wslDistribution = null
-            return
-        }
-        state.isWslMode = WslPathUtils.detectWslMode(state.executablePath)
-        state.wslDistribution =
-            if (state.isWslMode) {
-                WslPathUtils.extractDistribution(state.executablePath)
-            } else {
-                null
-            }
-    }
-
     companion object {
-        private fun getMiseExecutablePath(): String? {
+        private val logger = logger<MiseApplicationSettings>()
+
+        /**
+         * Auto-detect mise executable path as fallback.
+         * This is used at runtime when mise is not in PATH and no explicit setting exists.
+         * NOTE: Auto-detected paths are NOT persisted to settings.
+         *
+         * WARNING: This method is kept for backwards compatibility but should NOT be called
+         * from runtime code. Use explicit configuration or PATH default instead.
+         */
+        @Deprecated("Auto-detection removed from runtime. Users should configure explicitly or use PATH.")
+        fun getMiseExecutablePath(): String? {
+            logger.warn("getMiseExecutablePath() called - this method is deprecated and should not be used at runtime")
+
             // try to find the mise executable in the PATH
             val path = EnvironmentUtil.getValue("PATH")
             if (path != null) {
@@ -89,13 +82,7 @@ class MiseApplicationSettings : PersistentStateComponent<MiseApplicationSettings
                         return path.absolutePathString()
                     }
 
-                    // try to discover mise in WSL distributions
-                    val wslInstallations = WslPathUtils.discoverWslMise()
-                    if (wslInstallations.isNotEmpty()) {
-                        val first = wslInstallations.first()
-                        // Return as compound command: wsl.exe -d <distro> <path>
-                        return "wsl.exe -d ${first.distribution} ${first.path}"
-                    }
+                    // WSL discovery removed - should not auto-detect WSL for Windows projects
                 }
                 Platform.UNIX -> {
                     // do nothing
@@ -108,14 +95,10 @@ class MiseApplicationSettings : PersistentStateComponent<MiseApplicationSettings
 
     class MyState : Cloneable {
         var executablePath: String = ""
-        var isWslMode: Boolean = false
-        var wslDistribution: String? = null
 
         public override fun clone(): MyState =
             MyState().also {
                 it.executablePath = executablePath
-                it.isWslMode = isWslMode
-                it.wslDistribution = wslDistribution
             }
     }
 }
