@@ -6,15 +6,13 @@ import com.github.l34130.mise.core.notification.MiseNotificationServiceUtils
 import com.github.l34130.mise.core.run.ConfigEnvironmentStrategy
 import com.github.l34130.mise.core.run.MiseRunConfigurationSettingsEditor
 import com.github.l34130.mise.core.setting.MiseProjectSettings
+import com.github.l34130.mise.core.util.guessMiseProjectPath
 import com.intellij.execution.configurations.RunConfigurationBase
-import com.intellij.ide.impl.ProjectUtil
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.ProjectLocator
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.util.application
 import kotlinx.coroutines.Dispatchers
@@ -33,37 +31,26 @@ object MiseHelper {
         val useOverrideSettings = runConfigState?.configEnvironmentStrategy == ConfigEnvironmentStrategy.OVERRIDE_PROJECT_SETTINGS
         val useProjectSettings = projectState.useMiseDirEnv
 
-        val (workDir, configEnvironment) =
-            when {
-                isRunConfigDisabled -> return emptyMap()
-                useOverrideSettings -> {
-                    val workDir = workingDirectory?.takeIf { it.isNotBlank() } ?: project.basePath
-                    workDir to runConfigState.miseConfigEnvironment
-                }
-                useProjectSettings -> project.basePath to projectState.miseConfigEnvironment
-                else -> return emptyMap()
-            }
+        // Always use the run configuration's working directory (or project dir as fallback)
+        val workDir = workingDirectory?.takeIf { it.isNotBlank() }
+            ?: project.guessMiseProjectPath()
+
+        // Only the config environment varies based on settings
+        val configEnvironment = when {
+            isRunConfigDisabled -> return emptyMap()
+            useOverrideSettings -> runConfigState.miseConfigEnvironment
+            useProjectSettings -> projectState.miseConfigEnvironment
+            else -> return emptyMap()
+        }
 
         return getMiseEnvVarsOrNotify(project, workDir, configEnvironment)
     }
 
     fun getMiseEnvVarsOrNotify(
-        project: Project?,
-        workingDirectory: String? = null,
+        project: Project,
+        workingDirectory: String,
         configEnvironment: String? = null,
     ): Map<String, String> {
-        val project =
-            project ?: workingDirectory?.let { workDir ->
-                LocalFileSystem.getInstance().findFileByPath(workDir)?.let { vf ->
-                    ProjectLocator.getInstance().guessProjectForFile(vf)
-                }
-            } ?: ProjectUtil.getActiveProject() ?: ProjectUtil.getOpenProjects().firstOrNull()
-
-        if (project == null) {
-            logger.warn("No project found to load Mise environment variables")
-            return emptyMap()
-        }
-
         val projectState = project.service<MiseProjectSettings>().state
 
         val useMiseDirEnv = projectState.useMiseDirEnv

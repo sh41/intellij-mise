@@ -1,5 +1,6 @@
 package com.github.l34130.mise.core.command
 
+import com.github.l34130.mise.core.util.guessMiseProjectPath
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
@@ -9,8 +10,8 @@ object MiseCommandLineHelper {
     @RequiresBackgroundThread
     fun getEnvVars(
         project: Project,
-        workDir: String?,
-        configEnvironment: String?,
+        workDir: String = project.guessMiseProjectPath(),
+        configEnvironment: String? = null,
     ): Result<Map<String, String>> {
         val cache = project.service<MiseCommandCache>()
         return cache.getCachedBlocking(
@@ -28,8 +29,8 @@ object MiseCommandLineHelper {
     @RequiresBackgroundThread
     fun getEnvVarsExtended(
         project: Project,
-        workDir: String?,
-        configEnvironment: String?,
+        workDir: String = project.guessMiseProjectPath(),
+        configEnvironment: String? = null,
     ): Result<Map<String, MiseEnvExtended>> {
         val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
 
@@ -59,8 +60,8 @@ object MiseCommandLineHelper {
 
     suspend fun getEnvVarsAsync(
         project: Project,
-        workDir: String?,
-        configEnvironment: String?,
+        workDir: String = project.guessMiseProjectPath(),
+        configEnvironment: String? = null,
     ): Result<Map<String, String>> {
         val cache = project.service<MiseCommandCache>()
         return cache.getCached(
@@ -78,8 +79,8 @@ object MiseCommandLineHelper {
     @RequiresBackgroundThread
     fun getDevTools(
         project: Project,
-        workDir: String?,
-        configEnvironment: String?,
+        workDir: String = project.guessMiseProjectPath(),
+        configEnvironment: String? = null,
     ): Result<Map<MiseDevToolName, List<MiseDevTool>>> {
         val cache = project.service<MiseCommandCache>()
         return cache.getCachedBlocking(
@@ -103,7 +104,7 @@ object MiseCommandLineHelper {
     @RequiresBackgroundThread
     fun getTasks(
         project: Project,
-        workDir: String?,
+        workDir: String,
         configEnvironment: String?,
     ): Result<List<MiseTask>> {
         val cache = project.service<MiseCommandCache>()
@@ -144,7 +145,7 @@ object MiseCommandLineHelper {
 
         // Use project's base path as working directory to ensure correct mise context
         // (Windows mise for Windows projects, WSL mise for WSL projects)
-        val workDir = project.basePath
+        val workDir = project.guessMiseProjectPath()
 
         val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
         return miseCommandLine
@@ -177,7 +178,7 @@ object MiseCommandLineHelper {
 
         // Use project's base path as working directory to ensure correct mise context
         // (Windows mise for Windows projects, WSL mise for WSL projects)
-        val workDir = project.basePath
+        val workDir = project.guessMiseProjectPath()
 
         val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
         return miseCommandLine.runCommandLine(commandLineArgs)
