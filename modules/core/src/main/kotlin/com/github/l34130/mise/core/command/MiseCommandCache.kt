@@ -3,8 +3,9 @@ package com.github.l34130.mise.core.command
 import com.github.benmanes.caffeine.cache.Caffeine
 import com.github.benmanes.caffeine.cache.RemovalCause
 import com.github.l34130.mise.core.MiseConfigFileResolver
-import com.intellij.execution.configurations.GeneralCommandLine
-import com.intellij.execution.util.ExecUtil
+import com.github.l34130.mise.core.setting.MiseExecutableManager
+import com.github.l34130.mise.core.util.StampedeProtectedCache
+import com.github.l34130.mise.core.util.guessMiseProjectPath
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
@@ -17,8 +18,6 @@ import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 /**
  * Invalidation strategy for cached commands.
@@ -51,9 +50,10 @@ enum class CacheInvalidation {
  * ```
  */
 @Service(Service.Level.PROJECT)
-class MiseCommandCache(project: Project) {
+class MiseCommandCache(private val project: Project) {
     private val logger = logger<MiseCommandCache>()
     private val configResolver = project.service<MiseConfigFileResolver>()
+    private val executableManager = project.service<MiseExecutableManager>()
 
     // Caffeine cache with size-based eviction
     private val cache = Caffeine.newBuilder()
@@ -65,13 +65,8 @@ class MiseCommandCache(project: Project) {
         }
         .build<String, CacheEntry>()
 
-    // Per-key mutexes to prevent stampede
-    private val computationLocks = mutableMapOf<String, Mutex>()
-    private val locksMapMutex = Mutex()
-
-    // Cache resolved PATH for "mise" executable
-    private var cachedMisePathLocation: String? = null
-    private var cachedMisePathTimestamp: Long = 0L
+    // Stampede-protected computation cache
+    private val stampedeCache = StampedeProtectedCache<String, CacheEntry>()
 
     init {
         // Listen to file system changes
@@ -93,7 +88,7 @@ class MiseCommandCache(project: Project) {
     fun <T> getCachedBlocking(
         key: String,
         invalidation: CacheInvalidation,
-        workDir: String? = null,
+        workDir: String = project.guessMiseProjectPath(),
         configEnvironment: String? = null,
         compute: () -> Result<T>
     ): Result<T> = runBlocking {
@@ -106,84 +101,70 @@ class MiseCommandCache(project: Project) {
     suspend fun <T> getCached(
         key: String,
         invalidation: CacheInvalidation,
-        workDir: String? = null,
+        workDir: String = project.guessMiseProjectPath(),
         configEnvironment: String? = null,
         compute: suspend () -> Result<T>
     ): Result<T> {
-        // Check cache and validate
-        val cached = cache.getIfPresent(key)
-        if (cached != null && isCacheValid(cached, workDir, configEnvironment)) {
-            logger.debug("Cache hit: $key")
-            @Suppress("UNCHECKED_CAST")
-            return cached.value as Result<T>
-        }
-
-        // Get or create a mutex for this key
-        val mutex = locksMapMutex.withLock {
-            computationLocks.getOrPut(key) { Mutex() }
-        }
-
-        // Lock for this specific key to prevent stampede
-        return mutex.withLock {
-            // Double-check cache after acquiring lock (another thread might have computed it)
-            val recheck = cache.getIfPresent(key)
-            if (recheck != null && isCacheValid(recheck, workDir, configEnvironment)) {
-                logger.debug("Cache hit after lock: $key")
-                @Suppress("UNCHECKED_CAST")
-                return@withLock recheck.value as Result<T>
+        // Use stampede-protected cache
+        val entry = stampedeCache.get(
+            key = key,
+            isValid = { cachedEntry ->
+                isCacheValid(cachedEntry, workDir, configEnvironment)
             }
-
+        ) {
             // Cache miss or invalid - compute value
             logger.debug("Cache miss or invalid: $key")
             val result = compute()
 
-            // Store in cache with metadata
-            result.onSuccess {
-                val metadata = when (invalidation) {
-                    CacheInvalidation.ON_EXECUTABLE_CHANGE -> {
-                        CacheMetadata.ExecutableDependent(
-                            executablePath = "mise",
-                            executableTimestamp = resolveMiseInPath(workDir)?.let { getFileTimestamp(it) } ?: 0L
-                        )
-                    }
-
-                    CacheInvalidation.ON_CONFIG_CHANGE -> {
-                        val configFiles = getConfigFiles(workDir, configEnvironment)
-                        CacheMetadata.ConfigDependent(
-                            configTimestamps = configFiles.associateWith { it.timeStamp }
-                        )
-                    }
-
-                    CacheInvalidation.NEVER -> {
-                        CacheMetadata.Permanent
-                    }
+            // Create cache entry with metadata
+            val metadata = when (invalidation) {
+                CacheInvalidation.ON_EXECUTABLE_CHANGE -> {
+                    val execPath = executableManager.getExecutablePath(workDir)
+                    CacheMetadata.ExecutableDependent(
+                        executablePath = execPath,
+                        executableTimestamp = getFileTimestamp(execPath)
+                    )
                 }
 
-                cache.put(key, CacheEntry(result, metadata))
+                CacheInvalidation.ON_CONFIG_CHANGE -> {
+                    val configFiles = getConfigFiles(workDir, configEnvironment)
+                    CacheMetadata.ConfigDependent(
+                        configTimestamps = configFiles.associateWith { it.timeStamp }
+                    )
+                }
+
+                CacheInvalidation.NEVER -> {
+                    CacheMetadata.Permanent
+                }
+            }
+
+            val entry = CacheEntry(result, metadata)
+
+            // Also store in Caffeine cache for size-based eviction
+            result.onSuccess {
+                cache.put(key, entry)
                 logger.debug("Cached: $key (invalidation=$invalidation)")
             }
 
-            // Clean up mutex after computation
-            locksMapMutex.withLock {
-                computationLocks.remove(key)
-            }
-
-            result
+            entry
         }
+
+        @Suppress("UNCHECKED_CAST")
+        return entry.value as Result<T>
     }
 
     // === Private Helper Methods ===
 
     private suspend fun isCacheValid(
         entry: CacheEntry,
-        workDir: String?,
+        workDir: String,
         configEnvironment: String?
     ): Boolean {
         return when (val metadata = entry.metadata) {
             is CacheMetadata.ExecutableDependent -> {
                 // Check if executable changed
-                val currentPath = resolveMiseInPath(workDir)
-                val currentTimestamp = currentPath?.let { getFileTimestamp(it) } ?: 0L
+                val currentPath = executableManager.getExecutablePath(workDir)
+                val currentTimestamp = getFileTimestamp(currentPath)
                 currentTimestamp == metadata.executableTimestamp
             }
 
@@ -214,7 +195,8 @@ class MiseCommandCache(project: Project) {
                             metadata.configTimestamps.keys.contains(file)
                         }
                         is CacheMetadata.ExecutableDependent -> {
-                            cachedMisePathLocation?.contains(file.path) == true
+                            // Check if this file matches the stored executable path in metadata
+                            file.path == metadata.executablePath || file.path.contains(metadata.executablePath)
                         }
                         is CacheMetadata.Permanent -> false
                     }
@@ -222,55 +204,16 @@ class MiseCommandCache(project: Project) {
 
                 if (affectedEntries.isNotEmpty()) {
                     logger.info("File changed: ${file.path}, invalidating ${affectedEntries.size} cache entries")
-                    affectedEntries.forEach { (key, entry) ->
+                    affectedEntries.forEach { (key, _) ->
                         cache.invalidate(key)
-                        logger.debug("Invalidated: $key")
-
-                        // Clear executable cache if needed
-                        if (entry.metadata is CacheMetadata.ExecutableDependent) {
-                            cachedMisePathLocation = null
+                        runBlocking {
+                            stampedeCache.invalidate(key)
                         }
+                        logger.debug("Invalidated: $key")
                     }
                 }
             }
         }
-    }
-
-    private fun resolveMiseInPath(workDir: String?): String? {
-        // Check cached location first
-        if (cachedMisePathLocation != null) {
-            val cachedTimestamp = getFileTimestamp(cachedMisePathLocation!!)
-            if (cachedTimestamp == cachedMisePathTimestamp && cachedTimestamp > 0) {
-                return cachedMisePathLocation
-            }
-        }
-
-        try {
-            val command = if (workDir?.startsWith("\\\\wsl") == true) {
-                GeneralCommandLine("which", "mise").withWorkDirectory(workDir)
-            } else {
-                if (System.getProperty("os.name").contains("Windows")) {
-                    GeneralCommandLine("where", "mise")
-                } else {
-                    GeneralCommandLine("which", "mise")
-                }
-            }
-
-            val output = ExecUtil.execAndGetOutput(command, 1000)
-            if (output.exitCode == 0) {
-                val path = output.stdout.trim().lines().firstOrNull()
-                if (!path.isNullOrBlank()) {
-                    cachedMisePathLocation = path
-                    cachedMisePathTimestamp = getFileTimestamp(path)
-                    logger.debug("Resolved mise in PATH: $path")
-                    return path
-                }
-            }
-        } catch (e: Exception) {
-            logger.debug("Failed to resolve mise in PATH", e)
-        }
-
-        return null
     }
 
     private fun getFileTimestamp(path: String): Long {
@@ -283,8 +226,8 @@ class MiseCommandCache(project: Project) {
         }
     }
 
-    private suspend fun getConfigFiles(workDir: String?, configEnvironment: String?): List<VirtualFile> {
-        if (workDir == null) return emptyList()
+    private suspend fun getConfigFiles(workDir: String, configEnvironment: String?): List<VirtualFile> {
+        if (workDir.isBlank()) return emptyList()
 
         val basePath = VirtualFileManager.getInstance().findFileByUrl("file://$workDir") ?: return emptyList()
         return configResolver.resolveConfigFiles(basePath, refresh = false, configEnvironment = configEnvironment)
