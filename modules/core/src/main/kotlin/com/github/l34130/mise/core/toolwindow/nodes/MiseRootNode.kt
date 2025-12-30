@@ -7,7 +7,7 @@ import com.github.l34130.mise.core.command.MiseDevToolName
 import com.github.l34130.mise.core.model.MiseTask
 import com.github.l34130.mise.core.notification.MiseNotificationServiceUtils
 import com.github.l34130.mise.core.setting.MiseProjectSettings
-import com.intellij.ide.impl.ProjectUtil
+import com.github.l34130.mise.core.util.guessMiseProjectPath
 import com.intellij.ide.projectView.PresentationData
 import com.intellij.ide.util.treeView.AbstractTreeNode
 import com.intellij.openapi.components.service
@@ -21,7 +21,7 @@ import java.nio.file.Paths
 
 class MiseRootNode(
     nodeProject: Project,
-) : AbstractTreeNode<Any>(nodeProject, Object()) {
+) : AbstractTreeNode<Any>(nodeProject, "Mise") {
     override fun update(presentation: PresentationData) {
         presentation.presentableText = "Mise"
     }
@@ -62,7 +62,7 @@ class MiseRootNode(
             MiseCommandLineHelper
                 .getDevTools(
                     project = project,
-                    workDir = project.basePath,
+                    workDir = project.guessMiseProjectPath(),
                     configEnvironment = settings.state.miseConfigEnvironment,
                 ).getOrThrow()
 
@@ -89,7 +89,7 @@ class MiseRootNode(
             MiseCommandLineHelper
                 .getEnvVarsExtended(
                     project = project,
-                    workDir = project.basePath,
+                    workDir = project.guessMiseProjectPath(),
                     configEnvironment = settings.state.miseConfigEnvironment,
                 ).getOrThrow()
 
@@ -110,7 +110,7 @@ class MiseRootNode(
     private fun getTaskNodes(): Collection<AbstractTreeNode<*>> {
         val taskResolver = project.service<MiseTaskResolver>()
         val settings = project.service<MiseProjectSettings>()
-        val projectBaseDir = project.basePath ?: ProjectUtil.getBaseDir()
+        val projectBaseDir = project.guessMiseProjectPath()
         val configEnvironment = settings.state.miseConfigEnvironment
 
         val nodes = mutableListOf<AbstractTreeNode<*>>()

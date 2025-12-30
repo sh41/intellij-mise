@@ -4,6 +4,7 @@ import com.github.l34130.mise.core.command.MiseCommandLineHelper
 import com.github.l34130.mise.core.notification.MiseNotificationServiceUtils
 import com.github.l34130.mise.core.setting.MiseConfigurable
 import com.github.l34130.mise.core.setting.MiseProjectSettings
+import com.github.l34130.mise.core.util.guessMiseProjectPath
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.options.UnnamedConfigurable
@@ -32,7 +33,7 @@ class MiseVcsEnvCustomizer : VcsEnvCustomizer() {
             val miseEnvsResult =
                 runBlocking {
                     withBackgroundProgress(project, "Mise: Getting EnvVars") {
-                        MiseCommandLineHelper.getEnvVars(project, project.basePath, miseProjectSettings.miseConfigEnvironment)
+                        MiseCommandLineHelper.getEnvVars(project, project.guessMiseProjectPath(), miseProjectSettings.miseConfigEnvironment)
                     }
                 }
 

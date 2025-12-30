@@ -2,12 +2,12 @@ package com.github.l34130.mise.database
 
 import com.github.l34130.mise.core.command.MiseCommandLineHelper
 import com.github.l34130.mise.core.setting.MiseProjectSettings
+import com.github.l34130.mise.core.util.guessMiseProjectPath
 import com.intellij.database.access.DatabaseCredentials
 import com.intellij.database.dataSource.DatabaseAuthProvider
 import com.intellij.database.dataSource.DatabaseConnectionConfig
 import com.intellij.database.dataSource.DatabaseConnectionInterceptor
 import com.intellij.database.dataSource.DatabaseConnectionPoint
-import com.intellij.ide.impl.ProjectUtil
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import org.jetbrains.annotations.Nls
@@ -42,7 +42,7 @@ class MiseDatabaseAuthProvider : DatabaseAuthProvider {
             MiseCommandLineHelper
                 .getEnvVarsAsync(
                     project = proto.project,
-                    workDir = proto.project.basePath ?: ProjectUtil.getBaseDir(),
+                    workDir = proto.project.guessMiseProjectPath(),
                     configEnvironment = settings.miseConfigEnvironment,
                 ).getOrThrow()
 
