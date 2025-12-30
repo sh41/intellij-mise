@@ -24,7 +24,8 @@ class MiseConfigurable(
             fileChooserDescriptor = FileChooserDescriptor(true, false, false, false, false, false).withTitle("Select Mise Executable"),
             historyProvider = { listOf("/opt/homebrew/bin/mise").distinct() },
         )
-    private val myProjectMiseExecutableTf =
+    private val myProjectMiseExecutableOverrideCb = JBCheckBox("Override mise executable for this project")
+    private val myProjectMiseExecutableOverrideTf =
         textFieldWithHistoryWithBrowseButton(
             project = project,
             fileChooserDescriptor = FileChooserDescriptor(true, false, false, false, false, false).withTitle("Select Mise Executable"),
@@ -41,7 +42,8 @@ class MiseConfigurable(
         val projectSettings = project.service<MiseProjectSettings>()
 
         myMiseExecutableTf.setTextAndAddToHistory(applicationSettings.state.executablePath)
-        myProjectMiseExecutableTf.setTextAndAddToHistory(projectSettings.state.executablePath)
+        myProjectMiseExecutableOverrideCb.isSelected = projectSettings.state.projectExecutableOverrideEnabled
+        myProjectMiseExecutableOverrideTf.setTextAndAddToHistory(projectSettings.state.projectExecutableOverridePath)
         myMiseDirEnvCb.isSelected = projectSettings.state.useMiseDirEnv
         myMiseConfigEnvironmentTf.text = projectSettings.state.miseConfigEnvironment
         myMiseVcsCb.isSelected = projectSettings.state.useMiseVcsIntegration
@@ -64,17 +66,21 @@ class MiseConfigurable(
             }
 
             group("Project Settings", indent = false) {
-                row("Mise Executable Override:") {
-                    cell(myProjectMiseExecutableTf)
-                        .align(AlignX.FILL)
-                        .resizableColumn()
-                        .comment(
-                            """
-                            Optional: Override mise executable for this project only.</br>
-                            Leave empty to use application setting or PATH default.</br>
-                            For WSL projects, use UNC path: <code>\\wsl.localhost\DistroName\path\to\mise</code>
-                            """.trimIndent(),
-                        )
+                panel {
+                    indent {
+                        row {
+                            cell(myProjectMiseExecutableOverrideCb)
+                                .resizableColumn()
+                                .align(AlignX.FILL)
+                        }
+                        indent {
+                            row("Mise Executable:") {
+                                cell(myProjectMiseExecutableOverrideTf)
+                                    .resizableColumn()
+                                    .align(AlignX.FILL)
+                            }.enabledIf(myProjectMiseExecutableOverrideCb.selected)
+                        }
+                    }
                 }
 
                 panel {
@@ -112,7 +118,8 @@ class MiseConfigurable(
         val applicationSettings = application.service<MiseApplicationSettings>()
         val projectSettings = project.service<MiseProjectSettings>()
         return myMiseExecutableTf.text != applicationSettings.state.executablePath ||
-            myProjectMiseExecutableTf.text != projectSettings.state.executablePath ||
+            myProjectMiseExecutableOverrideCb.isSelected != projectSettings.state.projectExecutableOverrideEnabled ||
+            myProjectMiseExecutableOverrideTf.text != projectSettings.state.executablePath ||
             myMiseDirEnvCb.isSelected != projectSettings.state.useMiseDirEnv ||
             myMiseConfigEnvironmentTf.text != projectSettings.state.miseConfigEnvironment ||
             myMiseVcsCb.isSelected != projectSettings.state.useMiseVcsIntegration
@@ -124,7 +131,8 @@ class MiseConfigurable(
             val projectSettings = project.service<MiseProjectSettings>()
 
             applicationSettings.state.executablePath = myMiseExecutableTf.text
-            projectSettings.state.executablePath = myProjectMiseExecutableTf.text
+            projectSettings.state.projectExecutableOverrideEnabled = myProjectMiseExecutableOverrideCb.isSelected
+            projectSettings.state.projectExecutableOverridePath = myProjectMiseExecutableOverrideTf.text
             projectSettings.state.useMiseDirEnv = myMiseDirEnvCb.isSelected
             projectSettings.state.miseConfigEnvironment = myMiseConfigEnvironmentTf.text
             projectSettings.state.useMiseVcsIntegration = myMiseVcsCb.isSelected
