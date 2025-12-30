@@ -42,6 +42,12 @@ class MiseProjectSettings() : PersistentStateComponent<MiseProjectSettings.MySta
         var projectExecutableOverrideEnabled: Boolean = false
         var projectExecutableOverridePath: String = ""
 
+        fun executablePath(): String = if (projectExecutableOverrideEnabled) {
+            projectExecutableOverridePath
+        } else {
+            executablePath
+        }
+
         public override fun clone(): MyState =
             MyState().also {
                 it.useMiseDirEnv = useMiseDirEnv

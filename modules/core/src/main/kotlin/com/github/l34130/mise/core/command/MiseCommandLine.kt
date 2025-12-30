@@ -122,13 +122,9 @@ internal class MiseCommandLine(
         val appSettings = application.service<MiseApplicationSettings>()
 
         // Priority 1: Explicit configuration (project or app level)
-        val configuredPath = projectSettings.state.executablePath.takeIf { it.isNotEmpty() }
-            ?: appSettings.state.executablePath.takeIf { it.isNotEmpty() }
-
+        val configuredPath = projectSettings.state.executablePath().takeIf { it.isNotBlank() }
         if (configuredPath != null) {
             logger.info("==> [EXECUTABLE] Using configured path: $configuredPath")
-            logger.debug("==> [EXECUTABLE] Project setting: ${projectSettings.state.executablePath}")
-            logger.debug("==> [EXECUTABLE] App setting: ${appSettings.state.executablePath}")
             return configuredPath
         }
 
