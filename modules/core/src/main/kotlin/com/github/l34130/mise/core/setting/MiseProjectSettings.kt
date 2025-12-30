@@ -14,6 +14,13 @@ class MiseProjectSettings() : PersistentStateComponent<MiseProjectSettings.MySta
 
     override fun loadState(state: MyState) {
         myState = state.clone()
+
+        // Migration: Move projectExecutableOverridePath to executablePath if override was enabled
+        if (myState.projectExecutableOverrideEnabled && myState.projectExecutableOverridePath.isNotBlank()) {
+            myState.executablePath = myState.projectExecutableOverridePath
+            myState.projectExecutableOverrideEnabled = false
+            myState.projectExecutableOverridePath = ""
+        }
     }
 
     override fun noStateLoaded() {
@@ -27,11 +34,7 @@ class MiseProjectSettings() : PersistentStateComponent<MiseProjectSettings.MySta
                 it.miseConfigEnvironment = myState.miseConfigEnvironment
                 it.useMiseVcsIntegration = myState.useMiseVcsIntegration
                 it.executablePath = myState.executablePath
-                it.projectExecutableOverrideEnabled = myState.projectExecutableOverrideEnabled
-                it.projectExecutableOverridePath = myState.projectExecutableOverridePath
             }
-
-        // Remove the notification check - it's annoying when using PATH default
     }
 
     class MyState : Cloneable {
@@ -39,14 +42,13 @@ class MiseProjectSettings() : PersistentStateComponent<MiseProjectSettings.MySta
         var miseConfigEnvironment: String = ""
         var useMiseVcsIntegration: Boolean = true
         var executablePath: String = ""
-        var projectExecutableOverrideEnabled: Boolean = false
-        var projectExecutableOverridePath: String = ""
 
-        fun executablePath(): String = if (projectExecutableOverrideEnabled) {
-            projectExecutableOverridePath
-        } else {
-            executablePath
-        }
+        // Deprecated fields - kept for backward compatibility during deserialization
+        @Deprecated("Use executablePath instead")
+        var projectExecutableOverrideEnabled: Boolean = false
+
+        @Deprecated("Use executablePath instead")
+        var projectExecutableOverridePath: String = ""
 
         public override fun clone(): MyState =
             MyState().also {
@@ -54,8 +56,6 @@ class MiseProjectSettings() : PersistentStateComponent<MiseProjectSettings.MySta
                 it.miseConfigEnvironment = miseConfigEnvironment
                 it.useMiseVcsIntegration = useMiseVcsIntegration
                 it.executablePath = executablePath
-                it.projectExecutableOverrideEnabled = projectExecutableOverrideEnabled
-                it.projectExecutableOverridePath = projectExecutableOverridePath
             }
     }
 }

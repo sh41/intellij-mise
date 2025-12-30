@@ -1,6 +1,10 @@
 package com.github.l34130.mise.core.setting
 
+import com.github.l34130.mise.core.wsl.WslCommandHelper
 import com.intellij.execution.Platform
+import com.intellij.execution.wsl.WSLCommandLineOptions
+import com.intellij.execution.wsl.WslDistributionManager
+import com.intellij.execution.wsl.getWslPathSafe
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
@@ -13,6 +17,7 @@ import com.intellij.util.SystemProperties
 import com.intellij.util.system.OS
 import java.io.File
 import java.nio.file.Path
+import kotlin.io.path.Path
 import kotlin.io.path.absolutePathString
 
 @Service(Service.Level.APP)
@@ -36,31 +41,74 @@ class MiseApplicationSettings : PersistentStateComponent<MiseApplicationSettings
         myState = MyState()  // Just use empty defaults
     }
 
-    override fun initializeComponent() {
-        // Don't auto-populate - let it stay empty
-    }
     companion object {
         private val logger = logger<MiseApplicationSettings>()
 
         /**
-         * Auto-detect mise executable path as fallback.
-         * This is used at runtime when mise is not in PATH and no explicit setting exists.
-         * NOTE: Auto-detected paths are NOT persisted to settings.
+         * Auto-detect mise executable path for use by MiseExecutableManager.
+         * Checks PATH and common platform-specific installation locations.
          *
-         * WARNING: This method is kept for backwards compatibility but should NOT be called
-         * from runtime code. Use explicit configuration or PATH default instead.
+         * @param workDir Working directory to determine context (WSL vs Windows). Must not be blank.
+         * @return Detected path to mise executable, or null if not found
+         * @throws IllegalArgumentException if workDir is blank
          */
-        @Deprecated("Auto-detection removed from runtime. Users should configure explicitly or use PATH.")
-        fun getMiseExecutablePath(): String? {
-            logger.warn("getMiseExecutablePath() called - this method is deprecated and should not be used at runtime")
+        internal fun getMiseExecutablePath(workDir: String): String? {
+            require(workDir.isNotBlank()) { "workDir must not be blank" }
+
+            // Check if we're in WSL context using the existing helper
+            val isWslContext = WslCommandHelper.isWslUncPath(workDir)
+
+            // For WSL projects, use 'which' command in WSL environment
+            if (isWslContext) {
+                return try {
+                    // Extract distribution from the workDir UNC path
+                    val distributionMsId = com.github.l34130.mise.core.wsl.WslPathUtils.extractDistribution(workDir)
+                    if (distributionMsId == null) {
+                        logger.warn("Cannot extract WSL distribution from workDir: $workDir")
+                        return null
+                    }
+
+                    val distribution =
+                        WslDistributionManager.getInstance().getOrCreateDistributionByMsId(distributionMsId)
+                    val wslOptions =
+                        WSLCommandLineOptions().setRemoteWorkingDirectory(distribution.getWslPathSafe(Path(workDir)))
+                    val output = distribution.executeOnWsl(listOf("bash", "-c", "type -P mise"), wslOptions, 1000, null)
+
+                    if (output.exitCode == 0) {
+                        val unixPath = output.stdout.trim().lines().firstOrNull()?.takeIf { it.isNotBlank() }
+                        if (unixPath != null) {
+                            // Convert Unix path to Windows UNC path for IDE access
+                            val uncPath = com.github.l34130.mise.core.wsl.WslPathUtils.convertWslToWindowsUncPath(
+                                unixPath,
+                                distributionMsId
+                            )
+                            logger.info("Detected mise in WSL: $unixPath -> $uncPath")
+                            return uncPath
+                        }
+                    } else {
+                        logger.debug("'which mise' command failed in WSL (exit code: ${output.exitCode})")
+                    }
+                    null
+                } catch (e: Exception) {
+                    logger.debug("Failed to detect mise in WSL", e)
+                    null
+                }
+            }
 
             // try to find the mise executable in the PATH
             val path = EnvironmentUtil.getValue("PATH")
             if (path != null) {
+                val executableNames = when (OS.CURRENT.platform) {
+                    Platform.WINDOWS -> listOf("mise.exe", "mise.cmd", "mise.bat", "mise")
+                    else -> listOf("mise")
+                }
+
                 for (dir in StringUtil.tokenize(path, File.pathSeparator)) {
-                    val file = File(dir, "mise")
-                    if (file.canExecute()) {
-                        return file.toPath().absolutePathString()
+                    for (execName in executableNames) {
+                        val file = File(dir, execName)
+                        if (file.exists() && file.canExecute()) {
+                            return file.toPath().absolutePathString()
+                        }
                     }
                 }
             }
@@ -81,9 +129,8 @@ class MiseApplicationSettings : PersistentStateComponent<MiseApplicationSettings
                     if (runCatching { path.toFile().canExecute() }.getOrNull() == true) {
                         return path.absolutePathString()
                     }
-
-                    // WSL discovery removed - should not auto-detect WSL for Windows projects
                 }
+
                 Platform.UNIX -> {
                     // do nothing
                 }
