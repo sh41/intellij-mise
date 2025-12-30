@@ -1,7 +1,6 @@
 package com.github.l34130.mise.core.command
 
 import com.fasterxml.jackson.core.type.TypeReference
-import com.github.benmanes.caffeine.cache.Caffeine
 import com.github.l34130.mise.core.setting.MiseApplicationSettings
 import com.github.l34130.mise.core.setting.MiseProjectSettings
 import com.github.l34130.mise.core.wsl.WslCommandHelper
@@ -15,14 +14,14 @@ import com.intellij.util.application
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlin.time.Duration.Companion.seconds
-import kotlin.time.toJavaDuration
 
 internal class MiseCommandLine(
     private val project: Project,
     private val workDir: String? = null,
     private val configEnvironment: String? = null,
 ) {
+    private val commandCache = project.service<MiseCommandCache>()
+
     @RequiresBackgroundThread
     inline fun <reified T> runCommandLine(params: List<String>): Result<T> {
         val typeReference = object : TypeReference<T>() {}
@@ -238,42 +237,28 @@ internal class MiseCommandLine(
     @RequiresBackgroundThread
     private fun getMiseVersion(): MiseVersion {
         val executablePath = determineExecutablePath()
-        val cacheKey = "version:$executablePath:$workDir"
-        val cached: MiseVersion? = commandCache.getIfPresent(cacheKey) as? MiseVersion
-        if (cached != null) return cached
 
-        // Handle executable path that may contain spaces (e.g., "wsl.exe -d Ubuntu mise")
-        val command = mutableListOf<String>()
-        if (executablePath.contains(' ')) {
-            command.addAll(executablePath.split(' '))
-        } else {
-            command.add(executablePath)
-        }
-        command.add("version")
+        return commandCache.getCachedBlocking(
+            key = "version:$executablePath",
+            invalidation = CacheInvalidation.ON_EXECUTABLE_CHANGE,
+            workDir = workDir
+        ) {
+            logger.info("==> [VERSION CHECK] Fetching mise version")
 
-        val versionString = runCommandLineInternal(command)
+            val command = mutableListOf<String>()
+            if (executablePath.contains(' ')) {
+                command.addAll(executablePath.split(' '))
+            } else {
+                command.add(executablePath)
+            }
+            command.add("version")
 
-        val miseVersion =
-            versionString.fold(
-                onSuccess = {
-                    MiseVersion.parse(it)
-                },
-                onFailure = { _ ->
-                    MiseVersion(0, 0, 0)
-                },
-            )
-
-        commandCache.put(cacheKey, miseVersion)
-        return miseVersion
+            runCommandLineInternal(command).map { MiseVersion.parse(it) }
+        }.getOrElse { MiseVersion(0, 0, 0) }
     }
 
-    companion object {
-        private val commandCache =
-            Caffeine
-                .newBuilder()
-                .expireAfterWrite(5.seconds.toJavaDuration())
-                .build<String, Any>()
 
+    companion object {
         private val logger = Logger.getInstance(MiseCommandLine::class.java)
     }
 }

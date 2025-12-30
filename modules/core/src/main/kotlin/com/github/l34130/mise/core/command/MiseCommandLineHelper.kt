@@ -1,5 +1,6 @@
 package com.github.l34130.mise.core.command
 
+import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 
@@ -11,10 +12,16 @@ object MiseCommandLineHelper {
         workDir: String?,
         configEnvironment: String?,
     ): Result<Map<String, String>> {
-        val commandLineArgs = mutableListOf("env", "--json")
-
-        val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
-        return miseCommandLine.runCommandLine(commandLineArgs)
+        val cache = project.service<MiseCommandCache>()
+        return cache.getCachedBlocking(
+            key = "env:$workDir:$configEnvironment",
+            invalidation = CacheInvalidation.ON_CONFIG_CHANGE,
+            workDir = workDir,
+            configEnvironment = configEnvironment
+        ) {
+            val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
+            miseCommandLine.runCommandLine(listOf("env", "--json"))
+        }
     }
 
     // mise env
@@ -55,10 +62,16 @@ object MiseCommandLineHelper {
         workDir: String?,
         configEnvironment: String?,
     ): Result<Map<String, String>> {
-        val commandLineArgs = mutableListOf("env", "--json")
-
-        val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
-        return miseCommandLine.runCommandLineAsync(commandLineArgs)
+        val cache = project.service<MiseCommandCache>()
+        return cache.getCached(
+            key = "env:$workDir:$configEnvironment",
+            invalidation = CacheInvalidation.ON_CONFIG_CHANGE,
+            workDir = workDir,
+            configEnvironment = configEnvironment
+        ) {
+            val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
+            miseCommandLine.runCommandLineAsync(listOf("env", "--json"))
+        }
     }
 
     // mise ls
@@ -68,14 +81,22 @@ object MiseCommandLineHelper {
         workDir: String?,
         configEnvironment: String?,
     ): Result<Map<MiseDevToolName, List<MiseDevTool>>> {
-        val commandLineArgs = mutableListOf("ls", "--local", "--json")
+        val cache = project.service<MiseCommandCache>()
+        return cache.getCachedBlocking(
+            key = "ls:$workDir:$configEnvironment",
+            invalidation = CacheInvalidation.ON_CONFIG_CHANGE,
+            workDir = workDir,
+            configEnvironment = configEnvironment
+        ) {
+            val commandLineArgs = mutableListOf("ls", "--local", "--json")
 
-        val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
-        return miseCommandLine
-            .runCommandLine<Map<String, List<MiseDevTool>>>(commandLineArgs)
-            .map { devTools ->
-                devTools.mapKeys { (toolName, _) -> MiseDevToolName(toolName) }
-            }
+            val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
+            miseCommandLine
+                .runCommandLine<Map<String, List<MiseDevTool>>>(commandLineArgs)
+                .map { devTools ->
+                    devTools.mapKeys { (toolName, _) -> MiseDevToolName(toolName) }
+                }
+        }
     }
 
     // mise task ls
@@ -85,10 +106,18 @@ object MiseCommandLineHelper {
         workDir: String?,
         configEnvironment: String?,
     ): Result<List<MiseTask>> {
-        val commandLineArgs = mutableListOf("task", "ls", "--json")
+        val cache = project.service<MiseCommandCache>()
+        return cache.getCachedBlocking(
+            key = "tasks:$workDir:$configEnvironment",
+            invalidation = CacheInvalidation.ON_CONFIG_CHANGE,
+            workDir = workDir,
+            configEnvironment = configEnvironment
+        ) {
+            val commandLineArgs = mutableListOf("task", "ls", "--json")
 
-        val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
-        return miseCommandLine.runCommandLine(commandLineArgs)
+            val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
+            miseCommandLine.runCommandLine(commandLineArgs)
+        }
     }
 
     // mise config get
