@@ -95,4 +95,13 @@ class StampedeProtectedCache<K : Any, V : Any> {
             cache.remove(key)
         }
     }
+
+    /**
+     * Invalidate all cache entries.
+     */
+    suspend fun invalidateAll() {
+        cacheMutex.withLock {
+            cache.clear()
+        }
+    }
 }

@@ -10,6 +10,7 @@ import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.newvfs.BulkFileListener
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.util.application
+import com.intellij.util.messages.Topic
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -31,19 +32,29 @@ class MiseExecutableManager(private val project: Project) {
     private val pathCache = StampedeProtectedCache<String, CachedPath>()
 
     init {
-        // Listen to file system changes to invalidate cache
-        project.messageBus.connect().subscribe(
+        val connection = project.messageBus.connect()
+
+        // Listen to settings changes
+        connection.subscribe(
+            MiseSettingsListener.TOPIC,
+            object : MiseSettingsListener {
+                override fun settingsChanged() {
+                    handleExecutableChange("settings changed")
+                }
+            }
+        )
+
+        // Listen to file system changes
+        connection.subscribe(
             VirtualFileManager.VFS_CHANGES,
             object : BulkFileListener {
                 override fun after(events: List<VFileEvent>) {
                     events.forEach { event ->
                         val path = event.path
-                        // Invalidate if cached executable changed
                         runBlocking {
                             val cached = pathCache.getIfPresent(CACHE_KEY)
                             if (cached != null && path == cached.path) {
-                                logger.debug("Mise executable file changed, invalidating cache: $path")
-                                pathCache.invalidate(CACHE_KEY)
+                                handleExecutableChange("file changed: $path")
                             }
                         }
                     }
@@ -52,8 +63,34 @@ class MiseExecutableManager(private val project: Project) {
         )
     }
 
+    /**
+     * Handle executable change from any source (settings or VFS).
+     * Invalidates cache and broadcasts to listeners.
+     */
+    private fun handleExecutableChange(reason: String) {
+        logger.info("Mise executable changed ($reason), invalidating cache and notifying listeners")
+        runBlocking {
+            pathCache.invalidate(CACHE_KEY)
+        }
+        project.messageBus.syncPublisher(MISE_EXECUTABLE_CHANGED).run()
+    }
+
     companion object {
         private const val CACHE_KEY = "auto-detected-path"
+
+        /**
+         * Topic broadcast when the mise executable path changes.
+         * This includes changes from:
+         * - User modifying executable path in settings
+         * - Executable file being modified/deleted via VFS
+         */
+        @JvmField
+        @Topic.ProjectLevel
+        val MISE_EXECUTABLE_CHANGED = Topic(
+            "Mise Executable Changed",
+            Runnable::class.java,
+            Topic.BroadcastDirection.NONE
+        )
     }
 
     /**

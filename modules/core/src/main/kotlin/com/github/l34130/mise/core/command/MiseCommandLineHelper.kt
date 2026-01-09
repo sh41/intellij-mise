@@ -15,10 +15,7 @@ object MiseCommandLineHelper {
     ): Result<Map<String, String>> {
         val cache = project.service<MiseCommandCache>()
         return cache.getCachedBlocking(
-            key = "env:$workDir:$configEnvironment",
-            invalidation = CacheInvalidation.ON_CONFIG_CHANGE,
-            workDir = workDir,
-            configEnvironment = configEnvironment
+            key = "env:$workDir:$configEnvironment"
         ) {
             val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
             miseCommandLine.runCommandLine(listOf("env", "--json"))
@@ -65,10 +62,7 @@ object MiseCommandLineHelper {
     ): Result<Map<String, String>> {
         val cache = project.service<MiseCommandCache>()
         return cache.getCached(
-            key = "env:$workDir:$configEnvironment",
-            invalidation = CacheInvalidation.ON_CONFIG_CHANGE,
-            workDir = workDir,
-            configEnvironment = configEnvironment
+            key = "env:$workDir:$configEnvironment"
         ) {
             val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
             miseCommandLine.runCommandLineAsync(listOf("env", "--json"))
@@ -84,10 +78,7 @@ object MiseCommandLineHelper {
     ): Result<Map<MiseDevToolName, List<MiseDevTool>>> {
         val cache = project.service<MiseCommandCache>()
         return cache.getCachedBlocking(
-            key = "ls:$workDir:$configEnvironment",
-            invalidation = CacheInvalidation.ON_CONFIG_CHANGE,
-            workDir = workDir,
-            configEnvironment = configEnvironment
+            key = "ls:$workDir:$configEnvironment"
         ) {
             val commandLineArgs = mutableListOf("ls", "--local", "--json")
 
@@ -109,10 +100,7 @@ object MiseCommandLineHelper {
     ): Result<List<MiseTask>> {
         val cache = project.service<MiseCommandCache>()
         return cache.getCachedBlocking(
-            key = "tasks:$workDir:$configEnvironment",
-            invalidation = CacheInvalidation.ON_CONFIG_CHANGE,
-            workDir = workDir,
-            configEnvironment = configEnvironment
+            key = "tasks:$workDir:$configEnvironment"
         ) {
             val commandLineArgs = mutableListOf("task", "ls", "--json")
 

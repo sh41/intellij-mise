@@ -7,6 +7,7 @@ import com.github.l34130.mise.core.wsl.WslCommandHelper
 import com.intellij.execution.ExecutionException
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.util.ExecUtil
+import com.intellij.util.execution.ParametersListUtil
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
@@ -82,11 +83,7 @@ internal class MiseCommandLine(
         val commandLineArgs = mutableListOf<String>()
 
         // Handle executable path (may contain spaces like "wsl.exe -d Ubuntu mise")
-        if (executablePath.contains(' ')) {
-            commandLineArgs.addAll(executablePath.split(' '))
-        } else {
-            commandLineArgs.add(executablePath)
-        }
+        commandLineArgs.addAll(ParametersListUtil.parse(executablePath))
 
         // Add mise configuration environment parameter
         if (!configEnvironment.isNullOrBlank()) {
@@ -159,9 +156,9 @@ internal class MiseCommandLine(
     @RequiresBackgroundThread
     private fun runCommandLineInternal(
         commandLineArgs: List<String>,
-        workDir: String = this.workDir,
+        workingDir: String = this.workDir,
     ): Result<String> {
-        val generalCommandLine = GeneralCommandLine(commandLineArgs).withWorkDirectory(workDir.ifBlank { null })
+        val generalCommandLine = GeneralCommandLine(commandLineArgs).withWorkDirectory(workingDir.ifBlank { null })
         return runCommandLineInternal(generalCommandLine)
     }
 
@@ -218,18 +215,11 @@ internal class MiseCommandLine(
         val executablePath = determineExecutablePath()
 
         return commandCache.getCachedBlocking(
-            key = "version:$executablePath",
-            invalidation = CacheInvalidation.ON_EXECUTABLE_CHANGE,
-            workDir = workDir
+            key = "version:$executablePath"
         ) {
             logger.info("==> [VERSION CHECK] Fetching mise version")
 
-            val command = mutableListOf<String>()
-            if (executablePath.contains(' ')) {
-                command.addAll(executablePath.split(' '))
-            } else {
-                command.add(executablePath)
-            }
+            val command = ParametersListUtil.parse(executablePath).toMutableList()
             command.add("version")
 
             runCommandLineInternal(command).map { MiseVersion.parse(it) }

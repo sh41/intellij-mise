@@ -232,6 +232,9 @@ class MiseConfigurable(
             projectSettings.state.useMiseInDatabaseAuthentication = myMiseDatabaseCb.isSelected
             projectSettings.state.useMiseInNxCommands = myMiseNxCb.isSelected
             projectSettings.state.useMiseInAllCommandLines = myMiseAllCommandLinesCb.isSelected
+
+            // Notify listeners that settings have changed
+            project.messageBus.syncPublisher(MiseSettingsListener.TOPIC).settingsChanged()
         }
     }
 
