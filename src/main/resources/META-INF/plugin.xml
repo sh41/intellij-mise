@@ -6,6 +6,8 @@
 
     <depends>com.intellij.modules.platform</depends>
     <depends>org.toml.lang</depends>
+    <depends>Git4Idea</depends>
+
 
     <!-- Language Support -->
     <extensions defaultExtensionNs="com.intellij">

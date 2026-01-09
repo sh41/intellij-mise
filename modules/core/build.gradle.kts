@@ -17,6 +17,7 @@ dependencies {
         bundledPlugin("com.intellij.java")
         bundledPlugin("org.jetbrains.plugins.terminal")
         bundledPlugin("org.toml.lang")
+        bundledPlugin("Git4Idea")
 
         jetbrainsRuntime()
 
