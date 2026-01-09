@@ -88,7 +88,10 @@ object MiseHelper {
 
         return result
             .fold(
-                onSuccess = { envVars -> envVars },
+                onSuccess = { envVars ->
+                    // Add injection marker to prevent double-injection by other customizers
+                    envVars + (MiseCommandLineHelper.INJECTION_MARKER_KEY to MiseCommandLineHelper.INJECTION_MARKER_VALUE)
+                },
                 onFailure = {
                     if (it !is MiseCommandLineNotFoundException) {
                         MiseNotificationServiceUtils.notifyException("Failed to load environment variables", it, project)

@@ -1,6 +1,7 @@
 package com.github.l34130.mise.core.setting
 
 import com.github.l34130.mise.core.util.guessMiseProjectPath
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.options.SearchableConfigurable
@@ -18,7 +19,6 @@ import com.intellij.ui.dsl.builder.columns
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.layout.selected
 import com.intellij.util.application
-import com.intellij.ide.plugins.PluginManager
 import javax.swing.JComponent
 
 class MiseConfigurable(
@@ -167,11 +167,11 @@ class MiseConfigurable(
                                 }.enabledIf(myMiseDirEnvCb.selected)
                             }
 
-//                            row {
-//                                cell(myMiseAllCommandLinesCb)
-//                                    .resizableColumn()
-//                                    .comment("COMING SOON: Inject into all other command line execution (terminal, external tools, etc.)")
-//                            }.enabledIf(false)
+                            row {
+                                cell(myMiseAllCommandLinesCb)
+                                    .resizableColumn()
+                                    .comment("Inject into all other command line execution (terminal, external tools, etc.)")
+                            }.enabledIf(myMiseDirEnvCb.selected)
                         }
                     }
                 }

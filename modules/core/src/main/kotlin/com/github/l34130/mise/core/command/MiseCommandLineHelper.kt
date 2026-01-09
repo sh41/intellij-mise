@@ -6,6 +6,14 @@ import com.intellij.openapi.project.Project
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 
 object MiseCommandLineHelper {
+    /**
+     * Marker added to environment variables to prevent double-injection in the case where
+     * multiple env customizers are called.
+     * This marker is checked by all customizers to skip injection if already done.
+     */
+    const val INJECTION_MARKER_KEY = "_MISE_PLUGIN_ENV_VARS_INJECTED"
+    const val INJECTION_MARKER_VALUE = "true"
+
     // mise env
     @RequiresBackgroundThread
     fun getEnvVars(
