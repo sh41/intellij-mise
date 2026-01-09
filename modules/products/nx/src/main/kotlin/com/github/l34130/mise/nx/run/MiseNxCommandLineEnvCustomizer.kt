@@ -1,8 +1,10 @@
 package com.github.l34130.mise.nx.run
 
 import com.github.l34130.mise.core.MiseHelper
+import com.github.l34130.mise.core.setting.MiseProjectSettings
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.process.CommandLineEnvCustomizer
+import com.intellij.openapi.components.service
 import com.intellij.openapi.project.ProjectLocator
 import com.intellij.openapi.vfs.LocalFileSystem
 import java.nio.file.Paths
@@ -22,6 +24,10 @@ class MiseNxCommandLineEnvCustomizer : CommandLineEnvCustomizer {
             // Locate project from working directory
             val vf = LocalFileSystem.getInstance().findFileByPath(workDir) ?: return
             val project = ProjectLocator.getInstance().guessProjectForFile(vf) ?: return
+
+            // Check settings
+            val settings = project.service<MiseProjectSettings>().state
+            if (!settings.useMiseDirEnv || !settings.useMiseInNxCommands) return
 
             val envvar = MiseHelper.getMiseEnvVarsOrNotify(project, workDir, null)
             environment.putAll(envvar)

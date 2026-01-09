@@ -36,7 +36,7 @@ class MiseDatabaseAuthProvider : DatabaseAuthProvider {
                 ?: MiseDatabaseAuthConfig.PROP_PASSWORD_KEY_DEFAULT
 
         val settings = proto.project.service<MiseProjectSettings>().state
-        if (!settings.useMiseDirEnv) return false
+        if (!settings.useMiseDirEnv || !settings.useMiseInDatabaseAuthentication) return false
 
         val envVars =
             MiseCommandLineHelper

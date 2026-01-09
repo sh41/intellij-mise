@@ -34,6 +34,10 @@ class MiseProjectSettings() : PersistentStateComponent<MiseProjectSettings.MySta
                 it.miseConfigEnvironment = myState.miseConfigEnvironment
                 it.useMiseVcsIntegration = myState.useMiseVcsIntegration
                 it.executablePath = myState.executablePath
+                it.useMiseInRunConfigurations = myState.useMiseInRunConfigurations
+                it.useMiseInDatabaseAuthentication = myState.useMiseInDatabaseAuthentication
+                it.useMiseInNxCommands = myState.useMiseInNxCommands
+                it.useMiseInAllCommandLines = myState.useMiseInAllCommandLines
             }
     }
 
@@ -42,6 +46,12 @@ class MiseProjectSettings() : PersistentStateComponent<MiseProjectSettings.MySta
         var miseConfigEnvironment: String = ""
         var useMiseVcsIntegration: Boolean = true
         var executablePath: String = ""
+
+        // Granular injection controls
+        var useMiseInRunConfigurations: Boolean = true
+        var useMiseInDatabaseAuthentication: Boolean = true
+        var useMiseInNxCommands: Boolean = true
+        var useMiseInAllCommandLines: Boolean = false  // Conservative default
 
         // Deprecated fields - kept for backward compatibility during deserialization
         @Deprecated("Use executablePath instead")
@@ -56,6 +66,10 @@ class MiseProjectSettings() : PersistentStateComponent<MiseProjectSettings.MySta
                 it.miseConfigEnvironment = miseConfigEnvironment
                 it.useMiseVcsIntegration = useMiseVcsIntegration
                 it.executablePath = executablePath
+                it.useMiseInRunConfigurations = useMiseInRunConfigurations
+                it.useMiseInDatabaseAuthentication = useMiseInDatabaseAuthentication
+                it.useMiseInNxCommands = useMiseInNxCommands
+                it.useMiseInAllCommandLines = useMiseInAllCommandLines
             }
     }
 }

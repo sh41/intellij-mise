@@ -27,21 +27,23 @@ object MiseHelper {
         val projectState = project.service<MiseProjectSettings>().state
         val runConfigState = MiseRunConfigurationSettingsEditor.getMiseRunConfigurationState(configuration)
 
-        val isRunConfigDisabled = runConfigState?.useMiseDirEnv == false
-        val useOverrideSettings = runConfigState?.configEnvironmentStrategy == ConfigEnvironmentStrategy.OVERRIDE_PROJECT_SETTINGS
-        val useProjectSettings = projectState.useMiseDirEnv
+        // Check if disabled at run config level
+        if (runConfigState?.useMiseDirEnv == false) return emptyMap()
 
-        // Always use the run configuration's working directory (or project dir as fallback)
+        // Check master toggle AND run config setting
+        if (!projectState.useMiseDirEnv || !projectState.useMiseInRunConfigurations) {
+            return emptyMap()
+        }
+
         val workDir = workingDirectory?.takeIf { it.isNotBlank() }
             ?: project.guessMiseProjectPath()
 
-        // Only the config environment varies based on settings
-        val configEnvironment = when {
-            isRunConfigDisabled -> return emptyMap()
-            useOverrideSettings -> runConfigState.miseConfigEnvironment
-            useProjectSettings -> projectState.miseConfigEnvironment
-            else -> return emptyMap()
-        }
+        val configEnvironment =
+            if (runConfigState?.configEnvironmentStrategy == ConfigEnvironmentStrategy.OVERRIDE_PROJECT_SETTINGS) {
+                runConfigState.miseConfigEnvironment
+            } else {
+                projectState.miseConfigEnvironment
+            }
 
         return getMiseEnvVarsOrNotify(project, workDir, configEnvironment)
     }

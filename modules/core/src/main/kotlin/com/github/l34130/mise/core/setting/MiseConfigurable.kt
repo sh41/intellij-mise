@@ -18,6 +18,7 @@ import com.intellij.ui.dsl.builder.columns
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.layout.selected
 import com.intellij.util.application
+import com.intellij.ide.plugins.PluginManager
 import javax.swing.JComponent
 
 class MiseConfigurable(
@@ -33,7 +34,13 @@ class MiseConfigurable(
     // Other project settings
     private val myMiseDirEnvCb = JBCheckBox("Use environment variables from mise")
     private val myMiseConfigEnvironmentTf = JBTextField()
+
+    // Granular injection controls
+    private val myMiseRunConfigsCb = JBCheckBox("Use in run configurations")
     private val myMiseVcsCb = JBCheckBox("Enable VCS Integration")
+    private val myMiseDatabaseCb = JBCheckBox("Use in database authentication")
+    private val myMiseNxCb = JBCheckBox("Use in Nx commands")
+    private val myMiseAllCommandLinesCb = JBCheckBox("Use in all other command line execution")
 
     override fun getDisplayName(): String = "Mise Settings"
 
@@ -63,7 +70,11 @@ class MiseConfigurable(
 
         myMiseDirEnvCb.isSelected = projectSettings.state.useMiseDirEnv
         myMiseConfigEnvironmentTf.text = projectSettings.state.miseConfigEnvironment
+        myMiseRunConfigsCb.isSelected = projectSettings.state.useMiseInRunConfigurations
         myMiseVcsCb.isSelected = projectSettings.state.useMiseVcsIntegration
+        myMiseDatabaseCb.isSelected = projectSettings.state.useMiseInDatabaseAuthentication
+        myMiseNxCb.isSelected = projectSettings.state.useMiseInNxCommands
+        myMiseAllCommandLinesCb.isSelected = projectSettings.state.useMiseInAllCommandLines
 
         // Set placeholder text for auto-detected path
         val autoDetectedPath = executableManager.getAutoDetectedPath(project.guessMiseProjectPath())
@@ -115,7 +126,7 @@ class MiseConfigurable(
                             cell(myMiseDirEnvCb)
                                 .resizableColumn()
                                 .align(AlignX.FILL)
-                                .comment("Load environment variables from mise configuration file(s)")
+                                .comment("Master toggle for all mise environment variable injection")
                         }
                         indent {
                             row("Config Environment:") {
@@ -128,11 +139,39 @@ class MiseConfigurable(
                                         """.trimIndent(),
                                     )
                             }.enabledIf(myMiseDirEnvCb.selected)
+
+                            row {
+                                cell(myMiseRunConfigsCb)
+                                    .resizableColumn()
+                                    .comment("Apply to run/debug configurations (can be overridden per configuration)")
+                            }.enabledIf(myMiseDirEnvCb.selected)
+
                             row {
                                 cell(myMiseVcsCb)
                                     .resizableColumn()
                                     .comment("Enable mise environment variables and tools for VCS operations")
                             }.enabledIf(myMiseDirEnvCb.selected)
+
+                            row {
+                                cell(myMiseDatabaseCb)
+                                    .resizableColumn()
+                                    .comment("Use mise environment variables for database authentication")
+                            }.enabledIf(myMiseDirEnvCb.selected)
+
+                            // Conditional: Only show if Nx plugin is installed
+                            if (PluginManager.getLoadedPlugins().any { it.pluginId.idString == "dev.nx.console" }) {
+                                row {
+                                    cell(myMiseNxCb)
+                                        .resizableColumn()
+                                        .comment("Inject environment variables when running Nx commands")
+                                }.enabledIf(myMiseDirEnvCb.selected)
+                            }
+
+//                            row {
+//                                cell(myMiseAllCommandLinesCb)
+//                                    .resizableColumn()
+//                                    .comment("COMING SOON: Inject into all other command line execution (terminal, external tools, etc.)")
+//                            }.enabledIf(false)
                         }
                     }
                 }
@@ -160,7 +199,11 @@ class MiseConfigurable(
         return pathChanged ||
             myMiseDirEnvCb.isSelected != projectSettings.state.useMiseDirEnv ||
             myMiseConfigEnvironmentTf.text != projectSettings.state.miseConfigEnvironment ||
-            myMiseVcsCb.isSelected != projectSettings.state.useMiseVcsIntegration
+            myMiseRunConfigsCb.isSelected != projectSettings.state.useMiseInRunConfigurations ||
+            myMiseVcsCb.isSelected != projectSettings.state.useMiseVcsIntegration ||
+            myMiseDatabaseCb.isSelected != projectSettings.state.useMiseInDatabaseAuthentication ||
+            myMiseNxCb.isSelected != projectSettings.state.useMiseInNxCommands ||
+            myMiseAllCommandLinesCb.isSelected != projectSettings.state.useMiseInAllCommandLines
     }
 
     override fun apply() {
@@ -184,7 +227,11 @@ class MiseConfigurable(
 
             projectSettings.state.useMiseDirEnv = myMiseDirEnvCb.isSelected
             projectSettings.state.miseConfigEnvironment = myMiseConfigEnvironmentTf.text
+            projectSettings.state.useMiseInRunConfigurations = myMiseRunConfigsCb.isSelected
             projectSettings.state.useMiseVcsIntegration = myMiseVcsCb.isSelected
+            projectSettings.state.useMiseInDatabaseAuthentication = myMiseDatabaseCb.isSelected
+            projectSettings.state.useMiseInNxCommands = myMiseNxCb.isSelected
+            projectSettings.state.useMiseInAllCommandLines = myMiseAllCommandLinesCb.isSelected
         }
     }
 
