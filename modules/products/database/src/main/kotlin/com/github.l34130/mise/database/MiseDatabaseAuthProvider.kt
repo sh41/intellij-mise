@@ -39,12 +39,13 @@ class MiseDatabaseAuthProvider : DatabaseAuthProvider {
         if (!settings.useMiseDirEnv || !settings.useMiseInDatabaseAuthentication) return false
 
         val envVars =
-            MiseCommandLineHelper
-                .getEnvVarsAsync(
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                MiseCommandLineHelper.getEnvVars(
                     project = proto.project,
                     workDir = proto.project.guessMiseProjectPath(),
                     configEnvironment = settings.miseConfigEnvironment,
-                ).getOrThrow()
+                )
+            }.getOrThrow()
 
         val username = envVars[usernameKey]
         val password = envVars[passwordKey]

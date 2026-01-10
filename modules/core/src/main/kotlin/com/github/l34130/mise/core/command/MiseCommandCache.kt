@@ -1,47 +1,38 @@
 package com.github.l34130.mise.core.command
 
-import com.github.benmanes.caffeine.cache.Caffeine
-import com.github.benmanes.caffeine.cache.RemovalCause
 import com.github.l34130.mise.core.MiseTomlFileVfsListener
+import com.github.l34130.mise.core.cache.MiseCacheService
 import com.github.l34130.mise.core.setting.MiseExecutableManager
-import com.github.l34130.mise.core.util.StampedeProtectedCache
+import com.github.l34130.mise.core.util.guessMiseProjectPath
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
-import kotlinx.coroutines.runBlocking
+import com.intellij.util.application
 
 
 /**
- * Smart cache for mise commands using Caffeine with broadcast-based invalidation.
+ * Smart cache for mise commands with broadcast-based invalidation and proactive warming.
  *
  * Cache is invalidated when:
  * - Any mise config file changes (via MiseTomlFileVfsListener.MISE_TOML_CHANGED)
  * - Mise executable changes (via MiseExecutableManager.MISE_EXECUTABLE_CHANGED)
  *
+ * After invalidation, commonly-used commands (env, ls) are proactively re-warmed in background
+ * to avoid EDT blocking on next access.
+ *
  * Usage:
  * ```kotlin
- * cache.getCachedBlocking(key = "env:$workDir:$configEnvironment") {
+ * cache.getCached(key = "env:$workDir:$configEnvironment") {
  *     // Computation to run on cache miss
  *     miseCommandLine.runCommandLine<Map<String, String>>(listOf("env", "--json"))
  * }
  * ```
  */
 @Service(Service.Level.PROJECT)
-class MiseCommandCache(project: Project) {
+class MiseCommandCache(private val project: Project) {
     private val logger = logger<MiseCommandCache>()
-
-    // Caffeine cache with size-based eviction
-    private val cache = Caffeine.newBuilder()
-        .maximumSize(500)
-        .removalListener<String, CacheEntry> { key: String?, _: CacheEntry?, cause ->
-            if (cause == RemovalCause.SIZE) {
-                logger.debug("Cache entry evicted due to size limit: $key")
-            }
-        }
-        .build<String, CacheEntry>()
-
-    // Stampede-protected computation cache
-    private val stampedeCache = StampedeProtectedCache<String, CacheEntry>()
+    private val cacheService = project.service<MiseCacheService>()
 
     init {
         val connection = project.messageBus.connect()
@@ -51,10 +42,8 @@ class MiseCommandCache(project: Project) {
             MiseTomlFileVfsListener.MISE_TOML_CHANGED,
             Runnable {
                 logger.info("Mise config changed, invalidating entire cache")
-                cache.invalidateAll()
-                runBlocking {
-                    stampedeCache.invalidateAll()
-                }
+                cacheService.invalidateAllCommands()
+                warmCommonCommands()
             }
         )
 
@@ -63,44 +52,46 @@ class MiseCommandCache(project: Project) {
             MiseExecutableManager.MISE_EXECUTABLE_CHANGED,
             Runnable {
                 logger.info("Mise executable changed, invalidating entire cache")
-                cache.invalidateAll()
-                runBlocking {
-                    stampedeCache.invalidateAll()
-                }
+                cacheService.invalidateAllCommands()
+                warmCommonCommands()
             }
         )
     }
 
     /**
-     * Get cached value or compute it (synchronous version).
+     * Proactively warm commonly-used commands in background after cache invalidation.
+     * This prevents EDT blocking when UI components (tool window, etc.) refresh.
      */
-    fun <T> getCachedBlocking(
-        key: String,
-        compute: () -> Result<T>
-    ): Result<T> = runBlocking {
-        getCached(key) { compute() }
+    private fun warmCommonCommands() {
+        application.executeOnPooledThread {
+            try {
+                logger.debug("Warming command cache for commonly-used commands")
+                val workDir = project.guessMiseProjectPath()
+                val configEnvironment = project.service<com.github.l34130.mise.core.setting.MiseProjectSettings>().state.miseConfigEnvironment
+                
+                // Warm env vars (used by env customizers, tool window, etc.)
+                MiseCommandLineHelper.getEnvVars(project, workDir, configEnvironment)
+                
+                // Warm dev tools (used by tool window, SDK setup, etc.)
+                MiseCommandLineHelper.getDevTools(project, workDir, configEnvironment)
+                
+                logger.debug("Command cache warmed successfully")
+            } catch (e: Exception) {
+                logger.warn("Failed to warm command cache after invalidation", e)
+            }
+        }
     }
 
     /**
-     * Get cached value or compute it (coroutine version).
+     * Get the cached value or compute it.
+     * Uses Caffeine's built-in stampede protection.
      */
-    suspend fun <T> getCached(
+    fun <T> getCached(
         key: String,
-        compute: suspend () -> Result<T>
+        compute: () -> Result<T>
     ): Result<T> {
-        // Use stampede-protected cache (no validation needed - invalidation is broadcast-based)
-        val entry = stampedeCache.get(key) {
-            logger.debug("Cache miss: $key")
-            val result = compute()
-            val entry = CacheEntry(result)
-
-            // Also store in Caffeine cache for size-based eviction
-            result.onSuccess {
-                cache.put(key, entry)
-                logger.debug("Cached: $key")
-            }
-
-            entry
+        val entry = cacheService.getCachedCommand(key) {
+            CacheEntry(compute())
         }
 
         @Suppress("UNCHECKED_CAST")

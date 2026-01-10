@@ -1,6 +1,6 @@
 package com.github.l34130.mise.core.setting
 
-import com.github.l34130.mise.core.util.StampedeProtectedCache
+import com.github.l34130.mise.core.cache.MiseCacheService
 import com.github.l34130.mise.core.util.guessMiseProjectPath
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.openapi.components.Service
@@ -13,7 +13,6 @@ import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.util.application
 import com.intellij.util.execution.ParametersListUtil
 import com.intellij.util.messages.Topic
-import kotlinx.coroutines.runBlocking
 
 /**
  * Single source of truth for mise executable path resolution.
@@ -24,17 +23,13 @@ import kotlinx.coroutines.runBlocking
  * 3. Auto-detected path from PATH or common locations
  *
  * All resolved paths are cached per project and invalidated when:
- * - User changes executable path in settings
- * - Executable file is modified/deleted (detected via VFS listener)
+ * - User changes the executable path in settings
+ * - The cached path is modified/deleted (detected via VFS listener)
  */
 @Service(Service.Level.PROJECT)
 class MiseExecutableManager(private val project: Project) {
     private val logger = logger<MiseExecutableManager>()
-
-    // Cache for resolved executable path with stampede protection
-    // Single cache entry per project (one project = one mise executable)
-    private val executablePathCache = StampedeProtectedCache<Unit, String>()
-    private val autoDetectedPathCache = StampedeProtectedCache<Unit, String>()
+    private val cacheService = project.service<MiseCacheService>()
 
     init {
         val connection = project.messageBus.connect()
@@ -56,35 +51,54 @@ class MiseExecutableManager(private val project: Project) {
                 override fun after(events: List<VFileEvent>) {
                     events.forEach { event ->
                         val path = event.path
-                        runBlocking {
                             // Check if the changed file matches either cached path
-                            val execCached = executablePathCache.getIfPresent(Unit)
-                            val autoCached = autoDetectedPathCache.getIfPresent(Unit)
-                            if ((execCached != null && path == execCached) ||
-                                (autoCached != null && path == autoCached)) {
+                            val execCached = cacheService.getCachedExecutable(EXECUTABLE_KEY)
+                            val autoCached = cacheService.getCachedExecutable(AUTO_DETECTED_KEY)
+                            if ((path == execCached) || (path == autoCached)) {
                                 handleExecutableChange("file changed: $path")
                             }
-                        }
                     }
                 }
             }
         )
+
+        // Warm cache on startup to avoid EDT blocking on first use
+        // This runs in background and failure is non-fatal
+        application.executeOnPooledThread {
+            try {
+                logger.debug("Warming executable path cache on project startup")
+                getExecutablePath()
+                logger.debug("Executable path cache warmed successfully")
+            } catch (e: Exception) {
+                logger.warn("Failed to warm executable cache on startup - will compute on first use", e)
+            }
+        }
     }
 
     /**
      * Handle executable change from any source (settings or VFS).
-     * Invalidates cache and broadcasts to listeners.
+     * Invalidates cache, broadcasts to listeners, and re-warms cache in background.
      */
     private fun handleExecutableChange(reason: String) {
         logger.info("Mise executable changed ($reason), invalidating cache and notifying listeners")
-        runBlocking {
-            executablePathCache.invalidateAll()
-            autoDetectedPathCache.invalidateAll()
-            project.messageBus.syncPublisher(MISE_EXECUTABLE_CHANGED).run()
+        cacheService.invalidateAllExecutables()
+        project.messageBus.syncPublisher(MISE_EXECUTABLE_CHANGED).run()
+        
+        // Re-warm cache in background to avoid EDT blocking on next access
+        application.executeOnPooledThread {
+            try {
+                logger.debug("Re-warming executable path cache after invalidation")
+                getExecutablePath()
+                logger.debug("Executable path cache re-warmed successfully")
+            } catch (e: Exception) {
+                logger.warn("Failed to re-warm executable cache after invalidation", e)
+            }
         }
     }
 
     companion object {
+        const val EXECUTABLE_KEY = "executable-path"
+        const val AUTO_DETECTED_KEY = "auto-detected-path"
 
         /**
          * Topic broadcast when the mise executable path changes.
@@ -119,11 +133,8 @@ class MiseExecutableManager(private val project: Project) {
      *
      * @return Full path to mise executable
      */
-    fun getExecutablePath(): String = runBlocking {
-        executablePathCache.get(
-            key = Unit,
-            isValid = { true } // Listeners handle invalidation
-        ) {
+    fun getExecutablePath(): String {
+        return cacheService.getOrComputeExecutable(EXECUTABLE_KEY) {
             val projectSettings = project.service<MiseProjectSettings>()
             val appSettings = application.service<MiseApplicationSettings>()
 
@@ -131,14 +142,14 @@ class MiseExecutableManager(private val project: Project) {
             val projectPath = projectSettings.state.executablePath
             if (projectPath.isNotBlank()) {
                 logger.debug("Using project-configured executable: $projectPath")
-                return@get projectPath
+                return@getOrComputeExecutable projectPath
             }
 
             // Priority 2: Application-level user configuration
             val appPath = appSettings.state.executablePath
             if (appPath.isNotBlank()) {
                 logger.debug("Using app-configured executable: $appPath")
-                return@get appPath
+                return@getOrComputeExecutable appPath
             }
 
             // Priority 3: Auto-detect (with caching)
@@ -152,13 +163,11 @@ class MiseExecutableManager(private val project: Project) {
      *
      * @return Auto-detected path or "mise" as fallback
      */
-    fun getAutoDetectedPath(): String = runBlocking {
-        autoDetectedPathCache.get(
-            key = Unit,
-        ) {
+    fun getAutoDetectedPath(): String {
+        return cacheService.getOrComputeExecutable(AUTO_DETECTED_KEY) {
             val projectPath = project.guessMiseProjectPath()
 
-            // Detect mise executable (pass project path for WSL context)
+            // Detect mise executable (pass the project path for WSL context)
             val detected = MiseApplicationSettings.getMiseExecutablePath(projectPath)
 
             if (detected != null) {

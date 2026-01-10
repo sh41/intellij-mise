@@ -48,10 +48,13 @@ class MiseApplicationSettings : PersistentStateComponent<MiseApplicationSettings
          * Auto-detect mise executable path for use by MiseExecutableManager.
          * Checks PATH and common platform-specific installation locations.
          *
+         * IMPORTANT: This method performs blocking I/O (WSL command execution) and must NOT be called from EDT.
+         *
          * @param workDir Working directory to determine context (WSL vs Windows). Must not be blank.
          * @return Detected path to mise executable, or null if not found
          * @throws IllegalArgumentException if workDir is blank
          */
+        @RequiresBackgroundThread
         internal fun getMiseExecutablePath(workDir: String): String? {
             require(workDir.isNotBlank()) { "workDir must not be blank" }
 

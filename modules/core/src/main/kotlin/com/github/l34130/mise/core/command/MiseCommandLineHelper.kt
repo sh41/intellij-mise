@@ -22,7 +22,7 @@ object MiseCommandLineHelper {
         configEnvironment: String? = null,
     ): Result<Map<String, String>> {
         val cache = project.service<MiseCommandCache>()
-        return cache.getCachedBlocking(
+        return cache.getCached(
             key = "env:$workDir:$configEnvironment"
         ) {
             val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
@@ -63,19 +63,7 @@ object MiseCommandLineHelper {
         return Result.success(extendedEnvs)
     }
 
-    suspend fun getEnvVarsAsync(
-        project: Project,
-        workDir: String = project.guessMiseProjectPath(),
-        configEnvironment: String? = null,
-    ): Result<Map<String, String>> {
-        val cache = project.service<MiseCommandCache>()
-        return cache.getCached(
-            key = "env:$workDir:$configEnvironment"
-        ) {
-            val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
-            miseCommandLine.runCommandLineAsync(listOf("env", "--json"))
-        }
-    }
+
 
     // mise ls
     @RequiresBackgroundThread
@@ -85,7 +73,7 @@ object MiseCommandLineHelper {
         configEnvironment: String? = null,
     ): Result<Map<MiseDevToolName, List<MiseDevTool>>> {
         val cache = project.service<MiseCommandCache>()
-        return cache.getCachedBlocking(
+        return cache.getCached(
             key = "ls:$workDir:$configEnvironment"
         ) {
             val commandLineArgs = mutableListOf("ls", "--local", "--json")
@@ -107,7 +95,7 @@ object MiseCommandLineHelper {
         configEnvironment: String?,
     ): Result<List<MiseTask>> {
         val cache = project.service<MiseCommandCache>()
-        return cache.getCachedBlocking(
+        return cache.getCached(
             key = "tasks:$workDir:$configEnvironment"
         ) {
             val commandLineArgs = mutableListOf("task", "ls", "--json")
@@ -139,7 +127,7 @@ object MiseCommandLineHelper {
     ): Result<List<String>> {
         val commandLineArgs = mutableListOf("config", "--tracked-configs")
 
-        // Use project's base path as working directory to ensure correct mise context
+        // Use the project's base path as the working directory to ensure correct mise context
         // (Windows mise for Windows projects, WSL mise for WSL projects)
         val workDir = project.guessMiseProjectPath()
 
@@ -172,7 +160,7 @@ object MiseCommandLineHelper {
     ): Result<Unit> {
         val commandLineArgs = mutableListOf("trust", configFilePath)
 
-        // Use project's base path as working directory to ensure correct mise context
+        // Use the project's base path as the working directory to ensure correct mise context
         // (Windows mise for Windows projects, WSL mise for WSL projects)
         val workDir = project.guessMiseProjectPath()
 

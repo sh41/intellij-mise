@@ -7,13 +7,11 @@ import com.github.l34130.mise.core.wsl.WslCommandHelper
 import com.intellij.execution.ExecutionException
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.util.ExecUtil
-import com.intellij.util.execution.ParametersListUtil
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import com.intellij.util.execution.ParametersListUtil
 
 internal class MiseCommandLine(
     private val project: Project,
@@ -27,11 +25,6 @@ internal class MiseCommandLine(
     inline fun <reified T> runCommandLine(params: List<String>): Result<T> {
         val typeReference = object : TypeReference<T>() {}
         return runCommandLine(params, typeReference)
-    }
-
-    suspend inline fun <reified T> runCommandLineAsync(params: List<String>): Result<T> {
-        val typeReference = object : TypeReference<T>() {}
-        return runCommandLineAsync(params, typeReference)
     }
 
     @RequiresBackgroundThread
@@ -52,31 +45,13 @@ internal class MiseCommandLine(
         )
     }
 
-    suspend inline fun <reified T> runCommandLineAsync(
-        params: List<String>,
-        typeReference: TypeReference<T>,
-    ): Result<T> =
-        withContext(Dispatchers.IO) {
-            val rawResult = runRawCommandLine(params)
-            rawResult.fold(
-                onSuccess = { output ->
-                    if (T::class == Unit::class) {
-                        Result.success(Unit as T)
-                    } else {
-                        Result.success(MiseCommandLineOutputParser.parse(output, typeReference))
-                    }
-                },
-                onFailure = { Result.failure(it) },
-            )
-        }
-
     @RequiresBackgroundThread
     fun runRawCommandLine(params: List<String>): Result<String> {
         logger.debug("==> [COMMAND] Starting command execution (workDir: $workDir, params: $params)")
 
         val miseVersion = getMiseVersion()
 
-        // Determine executable path with project override support
+        // Determine the executable path with project override support
         val executablePath = determineExecutablePath()
 
         // Build command line arguments
@@ -106,7 +81,7 @@ internal class MiseCommandLine(
 
     /**
      * Determine which mise executable to use.
-     * Delegates to MiseExecutableManager which is the single source of truth.
+     * Delegates to MiseExecutableManager, which is the single source of truth.
      */
     private fun determineExecutablePath(): String {
         val executableManager = project.service<MiseExecutableManager>()
@@ -214,7 +189,7 @@ internal class MiseCommandLine(
     private fun getMiseVersion(): MiseVersion {
         val executablePath = determineExecutablePath()
 
-        return commandCache.getCachedBlocking(
+        return commandCache.getCached(
             key = "version:$executablePath"
         ) {
             logger.info("==> [VERSION CHECK] Fetching mise version")
