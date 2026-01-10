@@ -12,7 +12,10 @@ dependencies {
     testImplementation(libs.junit)
 
     intellijPlatform {
-        create(IntelliJPlatformType.IntellijIdeaCommunity, properties("platformVersion"), false)
+        create(
+            IntelliJPlatformType.IntellijIdeaCommunity,
+            properties("platformVersion")
+        ) { useInstaller = false }
 
         bundledPlugin("com.intellij.java")
         bundledPlugin("org.jetbrains.plugins.terminal")
