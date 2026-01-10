@@ -25,7 +25,7 @@ class MiseTomlTableTaskTest : FileTestBase() {
         val actualDependency = tasks[1].depends?.get(0)?.get(0)
         assertEquals(
             """
-            Expected 'echo' but got ${tasks[1].depends!![0][0]}.
+            Expected 'echo' but got ${actualDependency}.
             The task should have been resolved to 'echo' and the args should have been removed.
             """.trimIndent(),
             "echo",
