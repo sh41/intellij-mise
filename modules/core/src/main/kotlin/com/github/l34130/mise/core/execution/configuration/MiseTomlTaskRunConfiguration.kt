@@ -70,11 +70,11 @@ class MiseTomlTaskRunConfiguration(
                 commandLine.withEnvironment(EnvironmentUtil.getEnvironmentMap() + envVars.envs)
                 commandLine.withParentEnvironmentType(GeneralCommandLine.ParentEnvironmentType.CONSOLE)
                 commandLine.withWorkDirectory(projectBasePath)
+                commandLine.withParameters(params)
 
                 val executableManager = project.service<MiseExecutableManager>()
                 val miseExecutablePath = executableManager.getExecutablePath()
-                commandLine.withExePath(miseExecutablePath.substringBefore(" "))
-                commandLine.withParameters(miseExecutablePath.split(' ').drop(1) + params)
+                commandLine.withExePath(miseExecutablePath)
 
                 return ColoredProcessHandler(commandLine).apply {
                     setShouldKillProcessSoftly(true)
