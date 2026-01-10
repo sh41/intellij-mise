@@ -43,8 +43,7 @@ class MiseCommandLineEnvCustomizer : CommandLineEnvCustomizer {
 
 
         // Skip mise commands to prevent infinite recursion
-        val miseExecutablePath = project.service<MiseExecutableManager>().getExecutablePath(workDirResolved)
-        if (commandLine.exePath == miseExecutablePath) {
+        if (project.service<MiseExecutableManager>().matchesMiseExecutablePath(commandLine)) {
             return
         }
 

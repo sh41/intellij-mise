@@ -72,7 +72,7 @@ class MiseTomlTaskRunConfiguration(
                 commandLine.withWorkDirectory(projectBasePath)
 
                 val executableManager = project.service<MiseExecutableManager>()
-                val miseExecutablePath = executableManager.getExecutablePath(projectBasePath)
+                val miseExecutablePath = executableManager.getExecutablePath()
                 commandLine.withExePath(miseExecutablePath.substringBefore(" "))
                 commandLine.withParameters(miseExecutablePath.split(' ').drop(1) + params)
 

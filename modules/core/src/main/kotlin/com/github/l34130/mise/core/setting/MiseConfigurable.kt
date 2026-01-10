@@ -1,6 +1,5 @@
 package com.github.l34130.mise.core.setting
 
-import com.github.l34130.mise.core.util.guessMiseProjectPath
 import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
@@ -77,7 +76,7 @@ class MiseConfigurable(
         myMiseAllCommandLinesCb.isSelected = projectSettings.state.useMiseInAllCommandLines
 
         // Set placeholder text for auto-detected path
-        val autoDetectedPath = executableManager.getAutoDetectedPath(project.guessMiseProjectPath())
+        val autoDetectedPath = executableManager.getAutoDetectedPath()
         (myMiseExecutableTf.textField as ExtendableTextField).emptyText.text = "Auto-detected: $autoDetectedPath"
 
         // Configure file chooser to open at current or auto-detected location

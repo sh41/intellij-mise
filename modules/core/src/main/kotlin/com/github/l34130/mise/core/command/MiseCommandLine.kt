@@ -110,7 +110,7 @@ internal class MiseCommandLine(
      */
     private fun determineExecutablePath(): String {
         val executableManager = project.service<MiseExecutableManager>()
-        val path = executableManager.getExecutablePath(workDir)
+        val path = executableManager.getExecutablePath()
         logger.debug("==> [EXECUTABLE] Using path: $path (workDir: $workDir)")
         return path
     }
