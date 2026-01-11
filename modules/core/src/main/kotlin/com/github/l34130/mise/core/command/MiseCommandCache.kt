@@ -18,7 +18,7 @@ import com.intellij.util.application
  * - Any mise config file changes (via MiseTomlFileVfsListener.MISE_TOML_CHANGED)
  * - Mise executable changes (via MiseExecutableManager.MISE_EXECUTABLE_CHANGED)
  *
- * After invalidation, commonly-used commands (env, ls) are proactively re-warmed in background
+ * After invalidation, commonly used commands (env, ls) are proactively re-warmed in background
  * to avoid EDT blocking on next access.
  *
  * Usage:
@@ -68,13 +68,15 @@ class MiseCommandCache(private val project: Project) {
                 logger.debug("Warming command cache for commonly-used commands")
                 val workDir = project.guessMiseProjectPath()
                 val configEnvironment = project.service<com.github.l34130.mise.core.setting.MiseProjectSettings>().state.miseConfigEnvironment
-                
+
+                // Warm the version cache
+                MiseCommandLineHelper.getMiseVersion(project, workDir)
                 // Warm env vars (used by env customizers, tool window, etc.)
                 MiseCommandLineHelper.getEnvVars(project, workDir, configEnvironment)
-                
+
                 // Warm dev tools (used by tool window, SDK setup, etc.)
                 MiseCommandLineHelper.getDevTools(project, workDir, configEnvironment)
-                
+
                 logger.debug("Command cache warmed successfully")
             } catch (e: Exception) {
                 logger.warn("Failed to warm command cache after invalidation", e)

@@ -50,6 +50,25 @@ object MiseCommandLineHelper {
         environment[INJECTION_MARKER_KEY] = INJECTION_MARKER_VALUE_SKIP
     }
 
+    // mise version
+    @RequiresBackgroundThread
+    fun getMiseVersion(
+        project: Project,
+        workDir: String = project.guessMiseProjectPath(),
+    ): MiseVersion {
+        val cache = project.service<MiseCommandCache>()
+        return cache.getCached(
+            key = "version:$workDir"
+        ) {
+            // Use null configEnvironment to avoid recursive version check
+            val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment = null)
+            miseCommandLine.runCommandLine(
+                params = listOf("version"),
+                parser = { output -> MiseVersion.parse(output) }
+            )
+        }.getOrElse { MiseVersion(0, 0, 0) }
+    }
+
     // mise env
     @RequiresBackgroundThread
     fun getEnvVars(

@@ -24,15 +24,19 @@ internal class MiseCommandLine(
     private val commandCache = project.service<MiseCommandCache>()
 
     @RequiresBackgroundThread
-    inline fun <reified T> runCommandLine(params: List<String>): Result<T> {
+    inline fun <reified T> runCommandLine(
+        params: List<String>,
+        noinline parser: ((String) -> T)? = null,
+    ): Result<T> {
         val typeReference = object : TypeReference<T>() {}
-        return runCommandLine(params, typeReference)
+        return runCommandLine(params, typeReference, parser)
     }
 
     @RequiresBackgroundThread
     inline fun <reified T> runCommandLine(
         params: List<String>,
         typeReference: TypeReference<T>,
+        noinline parser: ((String) -> T)? = null,
     ): Result<T> {
         val rawResult = runRawCommandLine(params)
         return rawResult.fold(
@@ -40,7 +44,9 @@ internal class MiseCommandLine(
                 if (T::class == Unit::class) {
                     Result.success(Unit as T)
                 } else {
-                    Result.success(MiseCommandLineOutputParser.parse(output, typeReference))
+                    val parsed = parser?.invoke(output)
+                        ?: MiseCommandLineOutputParser.parse(output, typeReference)
+                    Result.success(parsed)
                 }
             },
             onFailure = { Result.failure(it) },
@@ -50,8 +56,6 @@ internal class MiseCommandLine(
     @RequiresBackgroundThread
     fun runRawCommandLine(params: List<String>): Result<String> {
         logger.debug("==> [COMMAND] Starting command execution (workDir: $workDir, params: $params)")
-
-        val miseVersion = getMiseVersion()
 
         // Determine the executable path with project override support
         val executablePath = determineExecutablePath()
@@ -64,6 +68,7 @@ internal class MiseCommandLine(
 
         // Add mise configuration environment parameter
         if (!configEnvironment.isNullOrBlank()) {
+            val miseVersion = MiseCommandLineHelper.getMiseVersion(project, workDir)
             if (miseVersion >= MiseVersion(2024, 12, 2)) {
                 commandLineArgs.add("--env")
                 commandLineArgs.add(configEnvironment)
@@ -148,23 +153,6 @@ internal class MiseCommandLine(
             .map { it.stdout }
     }
 
-    @RequiresBackgroundThread
-    private fun getMiseVersion(): MiseVersion {
-        val executablePath = determineExecutablePath()
-
-        return commandCache.getCached(
-            key = "version:$executablePath"
-        ) {
-            logger.info("==> [VERSION CHECK] Fetching mise version")
-
-            val command = ParametersListUtil.parse(executablePath).toMutableList()
-            command.add("version")
-
-            runCommandLineInternal(command).map { MiseVersion.parse(it) }
-        }.getOrElse { MiseVersion(0, 0, 0) }
-    }
-
-
     companion object {
         private val logger = Logger.getInstance(MiseCommandLine::class.java)
 
@@ -228,7 +216,7 @@ internal class MiseCommandLine(
                 } else {
                     if (!allowedToFail) {
                         logger.warn("Parsed error from stderr. (command=$generalCommandLine, error=$parsedError)")
-                    }else{
+                    } else {
                         logger.debug("Command failed, but is allowed to fail. (command=$generalCommandLine, error=$parsedError)")
                     }
                     return Result.failure(parsedError)
