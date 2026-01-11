@@ -1,8 +1,16 @@
-package com.github.l34130.mise.core.setting
+package com.github.l34130.mise.core.command
 
 import com.github.l34130.mise.core.cache.MiseCacheService
+import com.github.l34130.mise.core.setting.MiseApplicationSettings
+import com.github.l34130.mise.core.setting.MiseProjectSettings
+import com.github.l34130.mise.core.setting.MiseSettingsListener
+import com.github.l34130.mise.core.util.getProjectShell
+import com.github.l34130.mise.core.util.getUserHomeForProject
+import com.github.l34130.mise.core.util.getWslDistribution
 import com.github.l34130.mise.core.util.guessMiseProjectPath
+import com.intellij.execution.Platform
 import com.intellij.execution.configurations.GeneralCommandLine
+import com.intellij.execution.wsl.WSLDistribution
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
@@ -10,9 +18,16 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.newvfs.BulkFileListener
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
+import com.intellij.util.SystemProperties
 import com.intellij.util.application
+import com.intellij.util.concurrency.ThreadingAssertions.assertBackgroundThread
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.execution.ParametersListUtil
 import com.intellij.util.messages.Topic
+import com.intellij.util.system.OS
+import java.nio.file.Path
+import kotlin.io.path.Path
+import kotlin.io.path.absolutePathString
 
 /**
  * Single source of truth for mise executable path resolution.
@@ -63,7 +78,7 @@ class MiseExecutableManager(private val project: Project) {
         )
 
         // Warm cache on startup to avoid EDT blocking on first use
-        // This runs in background and failure is non-fatal
+        // This runs in the background and failure is non-fatal
         application.executeOnPooledThread {
             try {
                 logger.debug("Warming executable path cache on project startup")
@@ -77,14 +92,14 @@ class MiseExecutableManager(private val project: Project) {
 
     /**
      * Handle executable change from any source (settings or VFS).
-     * Invalidates cache, broadcasts to listeners, and re-warms cache in background.
+     * Invalidates cache, broadcasts to listeners, and re-warms cache in the background.
      */
     private fun handleExecutableChange(reason: String) {
         logger.info("Mise executable changed ($reason), invalidating cache and notifying listeners")
         cacheService.invalidateAllExecutables()
         project.messageBus.syncPublisher(MISE_EXECUTABLE_CHANGED).run()
 
-        // Re-warm cache in background to avoid EDT blocking on next access
+        // Re-warm the cache in the background to avoid EDT blocking on next access
         application.executeOnPooledThread {
             try {
                 logger.debug("Re-warming executable path cache after invalidation")
@@ -99,6 +114,12 @@ class MiseExecutableManager(private val project: Project) {
     companion object {
         const val EXECUTABLE_KEY = "executable-path"
         const val AUTO_DETECTED_KEY = "auto-detected-path"
+
+        /**
+         * Version command used for mise detection and verification.
+         * Using -vv ensures the debug output shows the actual executable path.
+         */
+        private const val MISE_VERSION_COMMAND = "version -vv"
 
         /**
          * Topic broadcast when the mise executable path changes.
@@ -168,7 +189,7 @@ class MiseExecutableManager(private val project: Project) {
             val projectPath = project.guessMiseProjectPath()
 
             // Detect mise executable (pass the project path for WSL context)
-            val detected = MiseApplicationSettings.getMiseExecutablePath(projectPath)
+            val detected = detectMiseExecutablePath(projectPath)
 
             if (detected != null) {
                 logger.info("Auto-detected mise executable: $detected")
@@ -179,5 +200,289 @@ class MiseExecutableManager(private val project: Project) {
                 "mise"
             }
         }
+    }
+
+    /**
+     * Auto-detect the mise executable path using shell commands and common installation locations.
+     * Checks PATH using platform-appropriate commands and falls back to common directories.
+     *
+     * @param workDir Working directory to determine context (WSL vs. native). Must not be blank.
+     * @return Detected path to mise executable, or null if not found
+     * @throws IllegalArgumentException if workDir is blank
+     */
+    private fun detectMiseExecutablePath(workDir: String): String? {
+        require(workDir.isNotBlank()) { "workDir must not be blank" }
+
+        // Get the shell path using project extension (handles WSL vs. native)
+        val shell = project.getProjectShell()
+        val distribution = project.getWslDistribution()
+
+        // Route to appropriate detection
+        return when {
+            shell != null && (distribution != null || OS.CURRENT.platform == Platform.UNIX) -> {
+                // WSL or Unix
+                detectOnUnix(workDir, shell, distribution)
+            }
+
+            OS.CURRENT.platform == Platform.WINDOWS -> {
+                // Native Windows (not WSL)
+                detectOnWindows()
+            }
+
+            else -> {
+                logger.warn("Could not determine shell for mise detection (workDir: $workDir)")
+                null
+            }
+        }
+    }
+
+    /**
+     * Detect mise executable by running a command and parsing the debug output from 'version -vv'.
+     * Captures both stdout and stderr as debug output can appear in either stream.
+     *
+     * @param executable The executable to run (e.g., "mise" or full path like "/usr/bin/mise")
+     * @param shellCommand The shell executable (e.g., "/bin/zsh", "cmd")
+     * @param shellArgs Arguments to pass to the shell (e.g., ["-l", "-c"] or ["/c"])
+     * @param workDir Working directory for the command
+     * @param distribution Optional WSL distribution for path conversion
+     * @return Detected mise executable path, or null if not found
+     */
+    @RequiresBackgroundThread
+    private fun detectMiseFromVersionCommand(
+        executable: String,
+        shellCommand: String,
+        shellArgs: List<String>,
+        workDir: String,
+        distribution: WSLDistribution? = null
+    ): String? {
+        assertBackgroundThread()
+
+        try {
+            // Build the full command: shell shellArgs "<executable> version -vv"
+            val fullCommand = "$executable $MISE_VERSION_COMMAND"
+            val commandLine = GeneralCommandLine(listOf(shellCommand) + shellArgs + listOf(fullCommand))
+                .withWorkingDirectory(Path.of(workDir))
+
+            // Add an injection marker to prevent environment customization during detection
+            MiseCommandLineHelper.environmentSkipCustomization(commandLine.environment)
+
+            // Execute command using a shared helper (failures are expected during detection)
+            val processOutput = MiseCommandLine.executeCommandLine(commandLine, allowedToFail = true, timeout = 3000)
+                .getOrElse { return null }
+
+            // Capture both stdout and stderr
+            val combinedOutput = processOutput.stderr + "\n" + processOutput.stdout
+            logger.debug(combinedOutput)
+            // Find the line with "ARGS: " that ends with " version -vv"
+            val argsLine = combinedOutput.lines().firstOrNull { line ->
+                line.contains("MISE_BIN: ")
+            }
+
+            if (argsLine != null) {
+                // Extract path: everything after "MISE_BIN: "
+                val misePath = argsLine.substringAfter("MISE_BIN: ")
+
+                if (misePath.isNotBlank() && misePath != executable) {
+                    // We found the actual path! For WSL, convert to Windows UNC
+                    val result = normalizeMisePath(misePath, distribution).toString()
+                    logger.info("Detected mise executable: $result")
+                    return result
+                }
+            }
+        } catch (e: Exception) {
+            logger.debug("Failed to detect mise via version command with executable='$executable'", e)
+        }
+
+        return null
+    }
+
+    /**
+     * Detect mise on Windows using the 'where' command and common installation paths.
+     */
+    @RequiresBackgroundThread
+    private fun detectOnWindows(): String? {
+        assertBackgroundThread()
+
+        val workDir = project.guessMiseProjectPath()
+
+        // Primary: Try 'mise version -vv' via cmd
+        val detected = detectMiseFromVersionCommand(
+            executable = "mise",
+            shellCommand = "cmd",
+            shellArgs = listOf("/c"),
+            workDir = workDir,
+            distribution = null
+        )
+
+        if (detected != null) {
+            // Verify by running the full path directly
+            val verified = detectMiseFromVersionCommand(
+                executable = detected,
+                shellCommand = "cmd",
+                shellArgs = listOf("/c"),
+                workDir = workDir,
+                distribution = null
+            )
+
+            if (verified != null) {
+                return verified
+            } else {
+                logger.warn("Detected mise at $detected but verification failed")
+            }
+        }
+
+        // Fallback: Try the 'where' command
+        try {
+            val commandLine = GeneralCommandLine("where", "mise")
+
+            // Add the injection marker to prevent environment customization during detection
+            MiseCommandLineHelper.environmentHasBeenCustomized(commandLine.environment)
+
+            val process = commandLine.createProcess()
+            val exitCode = process.waitFor()
+
+            if (exitCode == 0) {
+                val output = process.inputStream.bufferedReader().readText().trim()
+                val firstPath = output.lines().firstOrNull()?.takeIf { it.isNotBlank() }
+
+                if (firstPath != null) {
+                    // Verify the path from 'where'
+                    val verified = detectMiseFromVersionCommand(
+                        executable = firstPath,
+                        shellCommand = "cmd",
+                        shellArgs = listOf("/c"),
+                        workDir = workDir,
+                        distribution = null
+                    )
+
+                    if (verified != null) {
+                        logger.info("Detected mise via 'where': $verified")
+                        return verified
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            logger.debug("Failed 'where' command", e)
+        }
+
+        // Final fallback: Check common installation paths
+        val userHome = Path(SystemProperties.getUserHome())
+
+        val candidatePaths = listOf(
+            userHome.resolve("AppData/Local/Microsoft/WinGet/Links/mise.exe"),
+            userHome.resolve("scoop/apps/mise/current/bin/mise.exe")
+        )
+
+        for (candidatePath in candidatePaths) {
+            if (runCatching { candidatePath.toFile().canExecute() }.getOrNull() == true) {
+                val pathStr = candidatePath.absolutePathString()
+
+                // Verify the fallback path
+                val verified = detectMiseFromVersionCommand(
+                    executable = pathStr,
+                    shellCommand = "cmd",
+                    shellArgs = listOf("/c"),
+                    workDir = workDir,
+                    distribution = null
+                )
+
+                if (verified != null) {
+                    logger.info("Detected mise at fallback path: $verified")
+                    return verified
+                }
+            }
+        }
+
+        return null
+    }
+
+    /**
+     * Detect mise on Unix-like systems (Linux/macOS/WSL) using the user's shell.
+     * Uses login shell (-l) to ensure rc files are sourced (e.g., ~/.bashrc, ~/.zshrc).
+     * When workDir is a WSL UNC path, the Eel layer automatically handles WSL execution.
+     *
+     * @param workDir Working directory (can be WSL UNC path or native path)
+     * @param shell Shell path to use (Windows UNC for WSL, native path for Unix/macOS)
+     * @param distribution WSL distribution if workDir is WSL path, null otherwise
+     * @return Detected path to mise executable, or null if not found
+     */
+    @RequiresBackgroundThread
+    private fun detectOnUnix(
+        workDir: String,
+        shell: String,
+        distribution: WSLDistribution?
+    ): String? {
+        assertBackgroundThread()
+
+        // Primary: Try 'mise version -vv' with login shell
+        // This works even if mise is a shell function wrapper
+        val detected = detectMiseFromVersionCommand(
+            executable = "mise",
+            shellCommand = shell,
+            shellArgs = listOf("-l", "-c"),
+            workDir = workDir,
+            distribution = distribution
+        )
+
+        if (detected != null) {
+            // Verify by running the full path directly (not through shell)
+            val verified = detectMiseFromVersionCommand(
+                executable = detected,
+                shellCommand = shell,
+                shellArgs = listOf("-c"),  // No -l needed, using the full path
+                workDir = workDir,
+                distribution = distribution
+            )
+
+            if (verified != null) {
+                return verified
+            } else {
+                logger.warn("Detected mise at $detected but verification failed")
+            }
+        }
+
+        // Fallback: Check ~/.local/bin/mise
+        val defaultMisePath = "~/.local/bin/mise"
+        val localBinPath = normalizeMisePath(defaultMisePath, distribution)
+
+        if (runCatching { localBinPath.toFile().canExecute() }.getOrNull() == true) {
+            val pathStr = localBinPath.absolutePathString()
+
+            // Verify the fallback path
+            val verified = detectMiseFromVersionCommand(
+                executable = pathStr,
+                shellCommand = shell,
+                shellArgs = listOf("-c"),
+                workDir = workDir,
+                distribution = distribution
+            )
+
+            if (verified != null) {
+                logger.info("Detected mise in $defaultMisePath: $verified")
+                return verified
+            }
+        }
+
+        return null
+    }
+
+    private fun normalizeMisePath(
+        misePath: String,
+        distribution: WSLDistribution?
+    ): Path {
+        val homePrefixes = listOf("~/", "~\\", $$"$HOME/", $$"$HOME\\", $$"${HOME}/", $$"${HOME}\\")
+        val matchingPrefix = homePrefixes.firstOrNull { misePath.startsWith(it) }
+
+        val resolvedHome = if (matchingPrefix != null) {
+            val userHome = Path(project.getUserHomeForProject())
+            userHome.resolve(misePath.removePrefix(matchingPrefix)).toAbsolutePath()
+        } else {
+            Path(misePath).toAbsolutePath()
+        }
+
+        if (distribution != null && resolvedHome.startsWith("/")) {
+            return Path(distribution.getWindowsPath(resolvedHome.toString()))
+        }
+        return resolvedHome
     }
 }
