@@ -1,9 +1,15 @@
 package com.github.l34130.mise.core.command
 
 import com.github.l34130.mise.core.util.guessMiseProjectPath
+import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectLocator
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
+import java.nio.file.Paths
+import kotlin.String
+import kotlin.io.path.pathString
 
 object MiseCommandLineHelper {
     /**
@@ -19,27 +25,25 @@ object MiseCommandLineHelper {
      * Check if the mise plugin needs to customize environment variables.
      * @return true if customization is required, false otherwise
      */
-    fun environmentNeedsCustomization(environment: Map<String, String>): Boolean {
-        return !environment.containsKey(INJECTION_MARKER_KEY) ||
+    fun <K, V> environmentNeedsCustomization(environment: MutableMap<K, V>): Boolean
+            where K : String?, V : String? {
+        @Suppress("UNCHECKED_CAST")
+        return !environment.containsKey(INJECTION_MARKER_KEY as K) ||
                 (
-                        environment[INJECTION_MARKER_KEY] != INJECTION_MARKER_VALUE_DONE
-                                && environment[INJECTION_MARKER_KEY] != INJECTION_MARKER_VALUE_SKIP
+                        environment[INJECTION_MARKER_KEY as K] != INJECTION_MARKER_VALUE_DONE
+                                && environment[INJECTION_MARKER_KEY as K] != INJECTION_MARKER_VALUE_SKIP
                         )
     }
 
     /**
-     * Add injection marker to environment to prevent double-injection. Used by the VCS customizer
+     * Add injection marker to environment to prevent double-injection.
      * This marker is checked by all customizers to skip injection if already done.
+     * Supports both nullable and non-nullable map types.
      */
-    fun environmentHasBeenCustomizedNullable(environment: MutableMap<String?, String?>) {
-        environment[INJECTION_MARKER_KEY] = INJECTION_MARKER_VALUE_DONE
-    }
-    /**
-     * Add injection marker to environment to prevent double-injection. Used by the GeneralCommandLine customizer
-     * This marker is checked by all customizers to skip injection if already done.
-     */
-    fun environmentHasBeenCustomized(environment: MutableMap<String, String>) {
-        environment[INJECTION_MARKER_KEY] = INJECTION_MARKER_VALUE_DONE
+    fun <K, V> environmentHasBeenCustomized(environment: MutableMap<K, V>)
+            where K : String?, V : String? {
+        @Suppress("UNCHECKED_CAST")
+        environment[INJECTION_MARKER_KEY as K] = INJECTION_MARKER_VALUE_DONE as V
     }
 
     /**
@@ -48,6 +52,60 @@ object MiseCommandLineHelper {
      */
     fun environmentSkipCustomization(environment: MutableMap<String?, String?>) {
         environment[INJECTION_MARKER_KEY] = INJECTION_MARKER_VALUE_SKIP
+    }
+
+    /**
+     * Remove injection marker when customization fails, allowing retry.
+     * Supports both nullable and non-nullable map types.
+     */
+    fun <K, V> environmentCustomizationFailed(environment: MutableMap<K, V>)
+            where K : String?, V : String? {
+        @Suppress("UNCHECKED_CAST")
+        environment.remove(INJECTION_MARKER_KEY as K)
+    }
+
+    /**
+     * Safely gets an executable path from GeneralCommandLine, returning null if IllegalStateException occurs.
+     * @return executable path or null if not set
+     */
+    fun safeGetExePath(commandLine: GeneralCommandLine): String? {
+        return try {
+            commandLine.exePath
+        } catch (_: IllegalStateException) {
+            null
+        }
+    }
+
+    /**
+     * Checks if executable matches given names (e.g., "nx", "nx.cmd").
+     * @param commandLine the command line to check
+     * @param executableNames list of executable names to match against
+     * @return true if executable matches any of the given names
+     */
+    fun matchesExecutableNames(commandLine: GeneralCommandLine, executableNames: List<String>): Boolean {
+        val exePath = safeGetExePath(commandLine) ?: return false
+        return Paths.get(exePath).fileName.toString() in executableNames
+    }
+
+    /**
+     * Resolves project from GeneralCommandLine working directory.
+     * @param commandLine the command line to resolve the project from
+     * @return Project or null if not found
+     */
+    fun resolveProjectFromCommandLine(commandLine: GeneralCommandLine): Project? {
+        val workDir = commandLine.workingDirectory?.pathString ?: return null
+        val vf = LocalFileSystem.getInstance().findFileByPath(workDir) ?: return null
+        return ProjectLocator.getInstance().guessProjectForFile(vf)
+    }
+
+    /**
+     * Resolves working directory from GeneralCommandLine, falling back to the project path if null.
+     * @param commandLine the command line to get working directory from
+     * @param project the project to use as fallback
+     * @return working directory path
+     */
+    fun resolveWorkingDirectory(commandLine: GeneralCommandLine, project: Project): String {
+        return commandLine.workingDirectory?.pathString ?: project.guessMiseProjectPath()
     }
 
     // mise version
