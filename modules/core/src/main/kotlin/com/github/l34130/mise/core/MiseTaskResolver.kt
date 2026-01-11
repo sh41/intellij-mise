@@ -34,12 +34,21 @@ class MiseTaskResolver(
     init {
         // Ensure the VFS listener service is initialized
         project.service<MiseTomlFileListener>()
-        
+
         // Subscribe to cache invalidation events
         project.messageBus.connect(this).subscribe(MiseTomlFileListener.MISE_TOML_CHANGED) {
             cache.clear()
         }
     }
+
+    /**
+     * Invalidate the internal task cache.
+     * Should be called when mise configuration files change.
+     */
+    fun invalidateCache() {
+        cache.clear()
+    }
+
 
     suspend fun getMiseTasks(
         refresh: Boolean = false,
