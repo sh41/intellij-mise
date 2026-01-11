@@ -1,36 +1,23 @@
 package com.github.l34130.mise.nx.run
 
-import com.github.l34130.mise.core.MiseHelper
+import com.github.l34130.mise.core.command.MiseCommandLineEnvCustomizer
+import com.github.l34130.mise.core.command.MiseCommandLineHelper
 import com.github.l34130.mise.core.setting.MiseProjectSettings
 import com.intellij.execution.configurations.GeneralCommandLine
-import com.intellij.execution.process.CommandLineEnvCustomizer
-import com.intellij.openapi.components.service
-import com.intellij.openapi.project.ProjectLocator
-import com.intellij.openapi.vfs.LocalFileSystem
-import java.nio.file.Paths
-import kotlin.io.path.pathString
+import com.intellij.openapi.project.Project
 
 private val NX_EXECUTABLES = listOf("nx", "nx.cmd")
 
-@Suppress("UnstableApiUsage")
-class MiseNxCommandLineEnvCustomizer : CommandLineEnvCustomizer {
-    override fun customizeEnv(
-        commandLine: GeneralCommandLine,
-        environment: MutableMap<String, String>,
-    ) {
-        if (Paths.get(commandLine.exePath).fileName.toString() in NX_EXECUTABLES) {
-            val workDir = commandLine.workingDirectory?.pathString ?: return
+/**
+ * NX-specific command line customizer that customizes mise environment variables
+ * only for NX executable commands (nx, nx.cmd).
+ *
+ * Extends the base MiseCommandLineEnvCustomizer and filters to only apply to NX executables.
+ */
+class MiseNxCommandLineEnvCustomizer : MiseCommandLineEnvCustomizer() {
+    override fun shouldCustomizeForProject(project: Project, commandLine: GeneralCommandLine): Boolean = MiseCommandLineHelper.matchesExecutableNames(commandLine, NX_EXECUTABLES)
 
-            // Locate project from working directory
-            val vf = LocalFileSystem.getInstance().findFileByPath(workDir) ?: return
-            val project = ProjectLocator.getInstance().guessProjectForFile(vf) ?: return
-
-            // Check settings
-            val settings = project.service<MiseProjectSettings>().state
-            if (!settings.useMiseDirEnv || !settings.useMiseInNxCommands) return
-
-            val envvar = MiseHelper.getMiseEnvVarsOrNotify(project, workDir, null)
-            environment.putAll(envvar)
-        }
+    override fun shouldCustomizeForSettings(settings: MiseProjectSettings.MyState): Boolean {
+        return settings.useMiseDirEnv && settings.useMiseInNxCommands
     }
 }
