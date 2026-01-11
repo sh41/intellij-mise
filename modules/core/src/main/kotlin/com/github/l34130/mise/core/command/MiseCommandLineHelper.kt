@@ -109,15 +109,13 @@ object MiseCommandLineHelper {
     }
 
     // mise version
-    @RequiresBackgroundThread
     fun getMiseVersion(
         project: Project,
         workDir: String = project.guessMiseProjectPath(),
     ): MiseVersion {
         val cache = project.service<MiseCommandCache>()
-        return cache.getCached(
-            key = "version:$workDir"
-        ) {
+        val cacheKey = MiseCacheKey.Version(workDir)
+        return cache.getCachedWithProgress(cacheKey) {
             // Use null configEnvironment to avoid recursive version check
             val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment = null)
             miseCommandLine.runCommandLine(
@@ -128,66 +126,65 @@ object MiseCommandLineHelper {
     }
 
     // mise env
-    @RequiresBackgroundThread
     fun getEnvVars(
         project: Project,
         workDir: String = project.guessMiseProjectPath(),
         configEnvironment: String? = null,
     ): Result<Map<String, String>> {
         val cache = project.service<MiseCommandCache>()
-        return cache.getCached(
-            key = "env:$workDir:$configEnvironment"
-        ) {
+        val cacheKey = MiseCacheKey.EnvVars(workDir, configEnvironment)
+        return cache.getCachedWithProgress(cacheKey) {
             val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
             miseCommandLine.runCommandLine(listOf("env", "--json"))
         }
     }
 
     // mise env
-    @RequiresBackgroundThread
     fun getEnvVarsExtended(
         project: Project,
         workDir: String = project.guessMiseProjectPath(),
         configEnvironment: String? = null,
     ): Result<Map<String, MiseEnvExtended>> {
-        val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
+        val cache = project.service<MiseCommandCache>()
+        val cacheKey = MiseCacheKey.EnvVarsExtended(workDir, configEnvironment)
+        return cache.getCachedWithProgress(cacheKey) {
+            val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
 
-        val envs =
-            miseCommandLine
-                .runCommandLine<Map<String, MiseEnv>>(listOf("env", "--json-extended"))
-                .getOrElse { return Result.failure(it) }
+            val envs =
+                miseCommandLine
+                    .runCommandLine<Map<String, MiseEnv>>(listOf("env", "--json-extended"))
+                    .getOrElse { return@getCachedWithProgress Result.failure(it) }
 
-        val redactedEnvKeys =
-            miseCommandLine
-                .runCommandLine<Map<String, String>>(listOf("env", "--json", "--redacted"))
-                .getOrElse { emptyMap() }
-                .keys
+            val redactedEnvKeys =
+                miseCommandLine
+                    .runCommandLine<Map<String, String>>(listOf("env", "--json", "--redacted"))
+                    .getOrElse { emptyMap() }
+                    .keys
 
-        val extendedEnvs =
-            envs.mapValues { (key, env) ->
-                MiseEnvExtended(
-                    value = env.value,
-                    source = env.source,
-                    tool = env.tool,
-                    redacted = redactedEnvKeys.contains(key),
-                )
-            }
+            val extendedEnvs =
+                envs.mapValues { (key, env) ->
+                    MiseEnvExtended(
+                        value = env.value,
+                        source = env.source,
+                        tool = env.tool,
+                        redacted = redactedEnvKeys.contains(key),
+                    )
+                }
 
-        return Result.success(extendedEnvs)
+            Result.success(extendedEnvs)
+        }
     }
 
 
     // mise ls
-    @RequiresBackgroundThread
     fun getDevTools(
         project: Project,
         workDir: String = project.guessMiseProjectPath(),
         configEnvironment: String? = null,
     ): Result<Map<MiseDevToolName, List<MiseDevTool>>> {
         val cache = project.service<MiseCommandCache>()
-        return cache.getCached(
-            key = "ls:$workDir:$configEnvironment"
-        ) {
+        val cacheKey = MiseCacheKey.DevTools(workDir, configEnvironment)
+        return cache.getCachedWithProgress(cacheKey) {
             val commandLineArgs = mutableListOf("ls", "--local", "--json")
 
             val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)
@@ -200,16 +197,14 @@ object MiseCommandLineHelper {
     }
 
     // mise task ls
-    @RequiresBackgroundThread
     fun getTasks(
         project: Project,
         workDir: String,
         configEnvironment: String?,
     ): Result<List<MiseTask>> {
         val cache = project.service<MiseCommandCache>()
-        return cache.getCached(
-            key = "tasks:$workDir:$configEnvironment"
-        ) {
+        val cacheKey = MiseCacheKey.Tasks(workDir, configEnvironment)
+        return cache.getCachedWithProgress(cacheKey) {
             val commandLineArgs = mutableListOf("task", "ls", "--json")
 
             val miseCommandLine = MiseCommandLine(project, workDir, configEnvironment)

@@ -11,14 +11,7 @@ import com.intellij.execution.configurations.RunConfigurationBase
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.debug
-import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
-import com.intellij.platform.ide.progress.runWithModalProgressBlocking
-import com.intellij.platform.ide.progress.withBackgroundProgress
-import com.intellij.util.application
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 
 object MiseHelper {
     fun getMiseEnvVarsOrNotify(
@@ -57,55 +50,44 @@ object MiseHelper {
     ): MutableMap<String, String> {
         val projectState = project.service<MiseProjectSettings>().state
 
-        val useMiseDirEnv = projectState.useMiseDirEnv
-        if (!useMiseDirEnv) {
+        // Early return if disabled
+        if (!projectState.useMiseDirEnv) {
             logger.debug { "Mise environment variables loading is disabled in project settings" }
             return mutableMapOf()
         }
 
-        val configEnvironment = configEnvironment ?: projectState.miseConfigEnvironment
+        val resolvedConfigEnvironment = configEnvironment ?: projectState.miseConfigEnvironment
 
-        val result =
-            if (application.isDispatchThread) {
-                logger.debug { "dispatch thread detected, loading env vars on current thread" }
-                runWithModalProgressBlocking(project, "Loading Mise Environment Variables") {
-                    MiseCommandLineHelper.getEnvVars(project, workingDirectory, configEnvironment)
-                }
-            } else if (!application.isReadAccessAllowed) {
-                logger.debug { "no read lock detected, loading env vars on dispatch thread" }
-                var result: Result<Map<String, String>>? = null
-                application.invokeAndWait {
-                    logger.debug { "loading env vars on invokeAndWait" }
-                    runWithModalProgressBlocking(project, "Loading Mise Environment Variables") {
-                        result = MiseCommandLineHelper.getEnvVars(project, workingDirectory, configEnvironment)
-                    }
-                }
-                result ?: throw ProcessCanceledException()
-            } else {
-                logger.debug { "read access allowed, executing with background progress" }
-                runBlocking {
-                    withBackgroundProgress(project, "Loading Mise Environment Variables") {
-                        withContext(Dispatchers.IO) {
-                            MiseCommandLineHelper.getEnvVars(project, workingDirectory, configEnvironment)
-                        }
-                    }
-                }
-            }
+        // Cache handles fast-path + threading automatically
+        val result = MiseCommandLineHelper.getEnvVars(project, workingDirectory, resolvedConfigEnvironment)
+        return processEnvVarsResult(result, project)
+    }
 
-        return result
-            .fold(
-                onSuccess = { envVars ->
-                    val mutableEnvVars = envVars.toMutableMap()
-                    MiseCommandLineHelper.environmentHasBeenCustomized(mutableEnvVars)
-                    mutableEnvVars
-                },
-                onFailure = {
-                    if (it !is MiseCommandLineNotFoundException) {
-                        MiseNotificationServiceUtils.notifyException("Failed to load environment variables", it, project)
-                    }
-                    mutableMapOf()
-                },
-            )
+    /**
+     * Process a Result<Map<String, String>> into a MutableMap with proper error handling.
+     * Adds injection marker on success, shows notification on failure.
+     */
+    private fun processEnvVarsResult(
+        result: Result<Map<String, String>>,
+        project: Project
+    ): MutableMap<String, String> {
+        return result.fold(
+            onSuccess = { envVars ->
+                val mutableEnvVars = envVars.toMutableMap()
+                MiseCommandLineHelper.environmentHasBeenCustomized(mutableEnvVars)
+                mutableEnvVars
+            },
+            onFailure = { exception ->
+                if (exception !is MiseCommandLineNotFoundException) {
+                    MiseNotificationServiceUtils.notifyException(
+                        "Failed to load environment variables",
+                        exception,
+                        project
+                    )
+                }
+                mutableMapOf()
+            },
+        )
     }
 
     private val logger = Logger.getInstance(MiseHelper::class.java)

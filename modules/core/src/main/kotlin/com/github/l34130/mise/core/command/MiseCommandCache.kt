@@ -6,8 +6,14 @@ import com.github.l34130.mise.core.util.guessMiseProjectPath
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
+import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.util.application
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 
 
 /**
@@ -58,7 +64,7 @@ class MiseCommandCache(private val project: Project) {
     }
 
     /**
-     * Proactively warm commonly-used commands in background after cache invalidation.
+     * Proactively warm commonly used commands in background after cache invalidation.
      * This prevents EDT blocking when UI components (tool window, etc.) refresh.
      */
     private fun warmCommonCommands() {
@@ -86,22 +92,93 @@ class MiseCommandCache(private val project: Project) {
     /**
      * Get the cached value or compute it.
      * Uses Caffeine's built-in stampede protection.
+     * Internal method - callers should use getCachedWithProgress for threading protection.
      */
-    fun <T> getCached(
-        key: String,
-        compute: () -> Result<T>
-    ): Result<T> {
-        val entry = cacheService.getCachedCommand(key) {
-            CacheEntry(compute())
+    private fun <T> getCached(
+        cacheKey: MiseCacheKey<T>,
+        compute: () -> T
+    ): T {
+        val entry = cacheService.getCachedCommand(cacheKey.key) {
+            CacheEntry(compute() as Any)
         }
 
         @Suppress("UNCHECKED_CAST")
-        return entry.value as Result<T>
+        return entry.value as T
+    }
+
+    /**
+     * Get the cached value if present, without computing.
+     * Returns null if the key is not cached.
+     * This is a fast, synchronous operation suitable for fast-path optimization.
+     * Internal method - callers should use getCachedWithProgress for threading protection.
+     */
+    private fun <T> getIfCached(cacheKey: MiseCacheKey<T>): T? {
+        val entry = cacheService.getIfCachedCommand<CacheEntry>(cacheKey.key)
+        @Suppress("UNCHECKED_CAST")
+        return entry?.value as? T
+    }
+
+    /**
+     * Get cached value with automatic fast-path optimization and threading protection.
+     *
+     * - Fast path: Returns cached result synchronously (instant, no thread switching)
+     * - Slow path: Executes compute() on appropriate thread with progress indicator
+     *
+     * Thread-safe: Can be called from EDT, background thread, or read-action thread.
+     * The cache automatically handles threading based on calling context.
+     *
+     * Type-safe: Uses sealed class MiseCacheKey to guarantee key→type mapping at compile time.
+     *
+     * @param cacheKey Type-safe cache key (contains key string + progress title + type information)
+     * @param compute Function to compute value on cache miss (must be thread-safe)
+     * @return Cached or computed value of type T
+     */
+    fun <T> getCachedWithProgress(
+        cacheKey: MiseCacheKey<T>,
+        compute: () -> T
+    ): T {
+        // Fast path: check cache synchronously (instant, no threading overhead)
+        getIfCached(cacheKey)?.let {
+            logger.debug("Cache hit for key: ${cacheKey.key}")
+            return it
+        }
+
+        logger.debug("Cache miss for key: ${cacheKey.key}, loading with progress")
+
+        // Slow path: execute with appropriate threading strategy
+        return when {
+            application.isDispatchThread -> {
+                logger.debug("EDT detected, using modal progress")
+                runWithModalProgressBlocking(project, cacheKey.progressTitle) {
+                    getCached(cacheKey, compute)
+                }
+            }
+            !application.isReadAccessAllowed -> {
+                logger.debug("No read lock, dispatching to EDT")
+                var result: T? = null
+                application.invokeAndWait {
+                    runWithModalProgressBlocking(project, cacheKey.progressTitle) {
+                        result = getCached(cacheKey, compute)
+                    }
+                }
+                result ?: throw ProcessCanceledException()
+            }
+            else -> {
+                logger.debug("Background thread with read lock, using background progress")
+                runBlocking {
+                    withBackgroundProgress(project, cacheKey.progressTitle) {
+                        withContext(Dispatchers.IO) {
+                            getCached(cacheKey, compute)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // === Data Classes ===
 
     private data class CacheEntry(
-        val value: Result<*>
+        val value: Any
     )
 }
