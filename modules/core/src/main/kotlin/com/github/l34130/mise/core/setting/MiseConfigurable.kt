@@ -1,5 +1,6 @@
 package com.github.l34130.mise.core.setting
 
+import com.github.l34130.mise.core.command.MiseExecutableManager
 import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileChooser.FileChooserDescriptor

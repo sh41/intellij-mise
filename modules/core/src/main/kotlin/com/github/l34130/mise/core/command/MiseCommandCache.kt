@@ -2,7 +2,6 @@ package com.github.l34130.mise.core.command
 
 import com.github.l34130.mise.core.MiseTomlFileVfsListener
 import com.github.l34130.mise.core.cache.MiseCacheService
-import com.github.l34130.mise.core.setting.MiseExecutableManager
 import com.github.l34130.mise.core.util.guessMiseProjectPath
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service

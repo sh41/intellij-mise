@@ -2,7 +2,6 @@ package com.github.l34130.mise.core.command
 
 import com.fasterxml.jackson.core.type.TypeReference
 import com.github.l34130.mise.core.command.MiseCommandLineHelper.environmentSkipCustomization
-import com.github.l34130.mise.core.setting.MiseExecutableManager
 import com.github.l34130.mise.core.util.guessMiseProjectPath
 import com.github.l34130.mise.core.wsl.WslCommandHelper
 import com.intellij.execution.ExecutionException
@@ -21,7 +20,6 @@ internal class MiseCommandLine(
     private val configEnvironment: String? = null,
 ) {
     private val workDir: String = workDir?.takeIf { it.isNotBlank() } ?: project.guessMiseProjectPath()
-    private val commandCache = project.service<MiseCommandCache>()
 
     @RequiresBackgroundThread
     inline fun <reified T> runCommandLine(

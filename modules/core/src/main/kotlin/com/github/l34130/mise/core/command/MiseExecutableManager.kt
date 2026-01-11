@@ -51,12 +51,12 @@ class MiseExecutableManager(private val project: Project) {
                 override fun after(events: List<VFileEvent>) {
                     events.forEach { event ->
                         val path = event.path
-                            // Check if the changed file matches either cached path
-                            val execCached = cacheService.getCachedExecutable(EXECUTABLE_KEY)
-                            val autoCached = cacheService.getCachedExecutable(AUTO_DETECTED_KEY)
-                            if ((path == execCached) || (path == autoCached)) {
-                                handleExecutableChange("file changed: $path")
-                            }
+                        // Check if the changed file matches either cached path
+                        val execCached = cacheService.getCachedExecutable(EXECUTABLE_KEY)
+                        val autoCached = cacheService.getCachedExecutable(AUTO_DETECTED_KEY)
+                        if ((path == execCached) || (path == autoCached)) {
+                            handleExecutableChange("file changed: $path")
+                        }
                     }
                 }
             }
@@ -83,7 +83,7 @@ class MiseExecutableManager(private val project: Project) {
         logger.info("Mise executable changed ($reason), invalidating cache and notifying listeners")
         cacheService.invalidateAllExecutables()
         project.messageBus.syncPublisher(MISE_EXECUTABLE_CHANGED).run()
-        
+
         // Re-warm cache in background to avoid EDT blocking on next access
         application.executeOnPooledThread {
             try {

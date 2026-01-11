@@ -1,6 +1,6 @@
 package com.github.l34130.mise.core.execution.configuration
 
-import com.github.l34130.mise.core.setting.MiseExecutableManager
+import com.github.l34130.mise.core.command.MiseExecutableManager
 import com.github.l34130.mise.core.setting.MiseProjectSettings
 import com.github.l34130.mise.core.util.guessMiseProjectPath
 import com.intellij.execution.Executor

@@ -1,7 +1,6 @@
 package com.github.l34130.mise.core.command
 
 import com.github.l34130.mise.core.MiseHelper
-import com.github.l34130.mise.core.setting.MiseExecutableManager
 import com.github.l34130.mise.core.setting.MiseProjectSettings
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.process.CommandLineEnvCustomizer
