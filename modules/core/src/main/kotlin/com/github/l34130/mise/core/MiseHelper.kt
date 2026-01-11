@@ -14,9 +14,11 @@ import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
+import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.util.application
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 
 object MiseHelper {
     fun getMiseEnvVarsOrNotify(
@@ -80,9 +82,13 @@ object MiseHelper {
                 }
                 result ?: throw ProcessCanceledException()
             } else {
-                logger.debug { "read access allowed, executing on background thread" }
-                runBlocking(Dispatchers.IO) {
-                    MiseCommandLineHelper.getEnvVars(project, workingDirectory, configEnvironment)
+                logger.debug { "read access allowed, executing with background progress" }
+                runBlocking {
+                    withBackgroundProgress(project, "Loading Mise Environment Variables") {
+                        withContext(Dispatchers.IO) {
+                            MiseCommandLineHelper.getEnvVars(project, workingDirectory, configEnvironment)
+                        }
+                    }
                 }
             }
 
