@@ -64,6 +64,16 @@ class MiseCacheService(private val project: Project) {
         } as T
     }
 
+        /**
+     * Get a cached command result if present, without computing.
+     * Returns null if the key is not cached.
+     * This is a fast, synchronous operation suitable for fast-path optimization.
+     */
+    fun <T : Any> getIfCachedCommand(key: String): T? {
+        @Suppress("UNCHECKED_CAST")
+        return commandCache.getIfPresent(key) as? T
+    }
+
     /**
      * Invalidate all command cache entries.
      */
