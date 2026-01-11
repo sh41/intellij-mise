@@ -38,7 +38,10 @@ class MiseVcsEnvCustomizer : VcsEnvCustomizer() {
                 }
 
             miseEnvsResult.fold(
-                onSuccess = { envs.putAll(it) },
+                onSuccess = {
+                    envs.putAll(it)
+                    MiseCommandLineHelper.environmentHasBeenCustomizedNullable(envs)
+                            },
                 onFailure = {
                     logger.warn("Failed to get Mise env vars", it)
                     MiseNotificationServiceUtils.notifyException(

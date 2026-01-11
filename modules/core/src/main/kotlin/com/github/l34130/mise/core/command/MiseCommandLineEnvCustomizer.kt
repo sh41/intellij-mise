@@ -29,8 +29,8 @@ class MiseCommandLineEnvCustomizer : CommandLineEnvCustomizer {
         commandLine: GeneralCommandLine,
         environment: MutableMap<String, String>,
     ) {
-        // Skip if already injected by another customizer
-        if (environment[MiseCommandLineHelper.INJECTION_MARKER_KEY] == MiseCommandLineHelper.INJECTION_MARKER_VALUE) {
+        // Skip if already injected by another customizer or told to skip by the caller.
+        if (!MiseCommandLineHelper.environmentNeedsCustomization(environment)) {
             return
         }
 
@@ -53,9 +53,6 @@ class MiseCommandLineEnvCustomizer : CommandLineEnvCustomizer {
         if (!settings.useMiseDirEnv || !settings.useMiseInAllCommandLines) {
             return
         }
-
-        // Add marker FIRST to prevent double-injection by other customizers
-        environment[MiseCommandLineHelper.INJECTION_MARKER_KEY] = MiseCommandLineHelper.INJECTION_MARKER_VALUE
 
         try {
             // 6. Inject mise environment variables

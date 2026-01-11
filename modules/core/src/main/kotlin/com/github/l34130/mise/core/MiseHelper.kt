@@ -52,13 +52,13 @@ object MiseHelper {
         project: Project,
         workingDirectory: String,
         configEnvironment: String? = null,
-    ): Map<String, String> {
+    ): MutableMap<String, String> {
         val projectState = project.service<MiseProjectSettings>().state
 
         val useMiseDirEnv = projectState.useMiseDirEnv
         if (!useMiseDirEnv) {
             logger.debug { "Mise environment variables loading is disabled in project settings" }
-            return emptyMap()
+            return mutableMapOf()
         }
 
         val configEnvironment = configEnvironment ?: projectState.miseConfigEnvironment
@@ -89,14 +89,15 @@ object MiseHelper {
         return result
             .fold(
                 onSuccess = { envVars ->
-                    // Add injection marker to prevent double-injection by other customizers
-                    envVars + (MiseCommandLineHelper.INJECTION_MARKER_KEY to MiseCommandLineHelper.INJECTION_MARKER_VALUE)
+                    val mutableEnvVars = envVars.toMutableMap()
+                    MiseCommandLineHelper.environmentHasBeenCustomized(mutableEnvVars)
+                    mutableEnvVars
                 },
                 onFailure = {
                     if (it !is MiseCommandLineNotFoundException) {
                         MiseNotificationServiceUtils.notifyException("Failed to load environment variables", it, project)
                     }
-                    mapOf()
+                    mutableMapOf()
                 },
             )
     }

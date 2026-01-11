@@ -11,8 +11,44 @@ object MiseCommandLineHelper {
      * multiple env customizers are called.
      * This marker is checked by all customizers to skip injection if already done.
      */
-    const val INJECTION_MARKER_KEY = "_MISE_PLUGIN_ENV_VARS_INJECTED"
-    const val INJECTION_MARKER_VALUE = "true"
+    const val INJECTION_MARKER_KEY = "_MISE_PLUGIN_ENV_VARS_CUSTOMIZATION"
+    const val INJECTION_MARKER_VALUE_DONE = "done"
+    const val INJECTION_MARKER_VALUE_SKIP = "skipped"
+
+    /**
+     * Check if the mise plugin needs to customize environment variables.
+     * @return true if customization is required, false otherwise
+     */
+    fun environmentNeedsCustomization(environment: Map<String, String>): Boolean {
+        return !environment.containsKey(INJECTION_MARKER_KEY) ||
+                (
+                        environment[INJECTION_MARKER_KEY] != INJECTION_MARKER_VALUE_DONE
+                                && environment[INJECTION_MARKER_KEY] != INJECTION_MARKER_VALUE_SKIP
+                        )
+    }
+
+    /**
+     * Add injection marker to environment to prevent double-injection. Used by the VCS customizer
+     * This marker is checked by all customizers to skip injection if already done.
+     */
+    fun environmentHasBeenCustomizedNullable(environment: MutableMap<String?, String?>) {
+        environment[INJECTION_MARKER_KEY] = INJECTION_MARKER_VALUE_DONE
+    }
+    /**
+     * Add injection marker to environment to prevent double-injection. Used by the GeneralCommandLine customizer
+     * This marker is checked by all customizers to skip injection if already done.
+     */
+    fun environmentHasBeenCustomized(environment: MutableMap<String, String>) {
+        environment[INJECTION_MARKER_KEY] = INJECTION_MARKER_VALUE_DONE
+    }
+
+    /**
+     * Add injection marker to environment to prevent double-injection.
+     * This marker is checked by all customizers to skip injection if already done.
+     */
+    fun environmentSkipCustomization(environment: MutableMap<String?, String?>) {
+        environment[INJECTION_MARKER_KEY] = INJECTION_MARKER_VALUE_SKIP
+    }
 
     // mise env
     @RequiresBackgroundThread
@@ -62,7 +98,6 @@ object MiseCommandLineHelper {
 
         return Result.success(extendedEnvs)
     }
-
 
 
     // mise ls
