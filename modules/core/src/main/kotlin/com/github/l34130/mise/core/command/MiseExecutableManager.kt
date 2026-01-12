@@ -8,6 +8,7 @@ import com.github.l34130.mise.core.util.getProjectShell
 import com.github.l34130.mise.core.util.getUserHomeForProject
 import com.github.l34130.mise.core.util.getWslDistribution
 import com.github.l34130.mise.core.util.guessMiseProjectPath
+import com.github.l34130.mise.core.wsl.WslCommandHelper
 import com.intellij.execution.Platform
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.wsl.WSLDistribution
@@ -258,8 +259,12 @@ class MiseExecutableManager(
         assertBackgroundThread()
 
         try {
+            val posixExecutable = distribution?.let { dist ->
+                WslCommandHelper.convertWslPathsInString(executable, dist)
+            } ?: executable
+
             // Build the full command: shell shellArgs "<executable> version -vv"
-            val fullCommand = "$executable $MISE_VERSION_COMMAND"
+            val fullCommand = "$posixExecutable $MISE_VERSION_COMMAND"
             val commandLine = GeneralCommandLine(listOf(shellCommand) + shellArgs + listOf(fullCommand))
                 .withWorkingDirectory(Path.of(workDir))
 
@@ -331,41 +336,7 @@ class MiseExecutableManager(
             }
         }
 
-        // Fallback: Try the 'where' command
-        try {
-            val commandLine = GeneralCommandLine("where", "mise")
-
-            // Add the injection marker to prevent environment customization during detection
-            MiseCommandLineHelper.environmentHasBeenCustomized(commandLine.environment)
-
-            val process = commandLine.createProcess()
-            val exitCode = process.waitFor()
-
-            if (exitCode == 0) {
-                val output = process.inputStream.bufferedReader().readText().trim()
-                val firstPath = output.lines().firstOrNull()?.takeIf { it.isNotBlank() }
-
-                if (firstPath != null) {
-                    // Verify the path from 'where'
-                    val verified = detectMiseFromVersionCommand(
-                        executable = firstPath,
-                        shellCommand = "cmd",
-                        shellArgs = listOf("/c"),
-                        workDir = workDir,
-                        distribution = null
-                    )
-
-                    if (verified != null) {
-                        logger.info("Detected mise via 'where': $verified")
-                        return verified
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            logger.debug("Failed 'where' command", e)
-        }
-
-        // Final fallback: Check common installation paths
+        // fallback: Check common installation paths
         val userHome = Path(SystemProperties.getUserHome())
 
         val candidatePaths = listOf(

@@ -3,7 +3,6 @@ package com.github.l34130.mise.core.command
 import com.fasterxml.jackson.core.type.TypeReference
 import com.github.l34130.mise.core.command.MiseCommandLineHelper.environmentSkipCustomization
 import com.github.l34130.mise.core.util.guessMiseProjectPath
-import com.github.l34130.mise.core.wsl.WslCommandHelper
 import com.intellij.execution.ExecutionException
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.process.ProcessOutput
@@ -76,11 +75,9 @@ internal class MiseCommandLine(
             }
         }
 
-        // Transform path parameters if in WSL context
-        val transformedParams = transformPathParameters(params, executablePath)
-        commandLineArgs.addAll(transformedParams)
+        // Add user-provided parameters
+        commandLineArgs.addAll(params)
 
-        // Let GeneralCommandLine handle WSL execution via Eel
         return runCommandLineInternal(commandLineArgs, workDir)
     }
 
@@ -93,44 +90,6 @@ internal class MiseCommandLine(
         val path = executableManager.getExecutablePath()
         logger.debug("==> [EXECUTABLE] Using path: $path (workDir: $workDir)")
         return path
-    }
-
-    /**
-     * Transform path parameters from UNC to POSIX if needed.
-     *
-     * When executing in WSL, mise receives Windows UNC paths from IntelliJ,
-     * but mise expects POSIX paths. We need to convert path arguments.
-     */
-    private fun transformPathParameters(params: List<String>, executablePath: String): List<String> {
-        // Check if we're in WSL context
-        val execIsWslUnc = WslCommandHelper.isWslUncPath(executablePath)
-        val workDirIsWslUnc = workDir.isNotBlank() && WslCommandHelper.isWslUncPath(workDir)
-        val execContainsWsl = executablePath.contains("wsl.exe", ignoreCase = true) ||
-                executablePath.startsWith("wsl ", ignoreCase = true)
-
-        val isWslContext = execIsWslUnc || workDirIsWslUnc || execContainsWsl
-
-        logger.debug("==> [PATH TRANSFORM] isWslContext: $isWslContext (exec: $executablePath, workDir: $workDir)")
-
-        if (!isWslContext) {
-            return params  // No transformation needed for Windows native
-        }
-
-        // Transform parameters that look like paths
-        val transformed = params.map { param ->
-            // Heuristic: if it contains path separators, try to convert it
-            if (param.contains('\\') || (param.contains('/') && param.length > 3)) {
-                val converted = WslCommandHelper.convertPathParameterForWsl(param)
-                if (converted != param) {
-                    logger.info("==> [PATH TRANSFORM] Converted: '$param' -> '$converted'")
-                }
-                converted
-            } else {
-                param
-            }
-        }
-
-        return transformed
     }
 
     @RequiresBackgroundThread
