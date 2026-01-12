@@ -155,6 +155,8 @@ class MiseCommandCache(private val project: Project) {
             }
             !application.isReadAccessAllowed -> {
                 logger.debug("No read lock, dispatching to EDT")
+            canSafelyInvokeAndWait() -> {
+                // Background thread without read lock, but safe to dispatch to EDT
                 var result: T? = null
                 application.invokeAndWait {
                     runWithModalProgressBlocking(project, cacheKey.progressTitle) {

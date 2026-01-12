@@ -46,10 +46,6 @@ interface MiseEnvCustomizer {
         workDir: String,
         environment: MutableMap<out String?, out String?>
     ): Boolean {
-        // 1. Check if already customized
-        if (!MiseCommandLineHelper.environmentNeedsCustomization(environment)) return false
-
-        // 2. Check settings
         val settings = project.service<MiseProjectSettings>().state
         if (!shouldCustomizeForSettings(settings)) return false
 

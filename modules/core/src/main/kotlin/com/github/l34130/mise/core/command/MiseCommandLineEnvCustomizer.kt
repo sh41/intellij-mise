@@ -2,6 +2,7 @@ package com.github.l34130.mise.core.command
 
 import com.github.l34130.mise.core.MiseEnvCustomizer
 import com.github.l34130.mise.core.setting.MiseProjectSettings
+import com.github.l34130.mise.core.util.canSafelyInvokeAndWait
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.process.CommandLineEnvCustomizer
 import com.intellij.openapi.components.service
@@ -28,19 +29,26 @@ open class MiseCommandLineEnvCustomizer : CommandLineEnvCustomizer, MiseEnvCusto
         commandLine: GeneralCommandLine,
         environment: MutableMap<String, String>,
     ) {
-        // 1. Safe exePath check
+        // Skip if in unsafe threading context (WSL/IJent infrastructure, coroutines, etc.)
+        // This prevents threading issues, deadlocks, and project detection failures
+        if (!canSafelyInvokeAndWait()) {
+            logger.debug("Skipping environment customization due to unsafe threading context")
+            return
+        }
+
+        // Immediately exit if this isn't required. This must always be the first check to avoid recursion
+        if (!MiseCommandLineHelper.environmentNeedsCustomization(commandLine.environment)) return
+
+        // Safe exePath check, this prevents an exception being thrown by a null exePath
         if (MiseCommandLineHelper.safeGetExePath(commandLine) == null) return
 
-        // 2. Resolve the project from the command line
         val project = MiseCommandLineHelper.resolveProjectFromCommandLine(commandLine) ?: return
 
-        // 3. Check if we should customize for this project (can be overridden by subclasses)
+        // Perform checks that need the project (can be overridden by subclasses)
         if (!shouldCustomizeForProject(project, commandLine)) return
 
-        // 4. Resolve the working directory (fallback to the project path)
         val workDir = MiseCommandLineHelper.resolveWorkingDirectory(commandLine, project)
-
-        // 5. Shared customization logic (marker check, settings check, customize with error handling)
+        // Perform checks against settings (override shouldCustomizeForSettings in subclasses) and if good do the actual customization
         customizeMiseEnvironment(project, workDir, environment)
     }
 

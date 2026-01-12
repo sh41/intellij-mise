@@ -1,6 +1,7 @@
 package com.github.l34130.mise.core.vcs
 
 import com.github.l34130.mise.core.MiseEnvCustomizer
+import com.github.l34130.mise.core.command.MiseCommandLineHelper
 import com.github.l34130.mise.core.setting.MiseConfigurable
 import com.github.l34130.mise.core.setting.MiseProjectSettings
 import com.github.l34130.mise.core.util.guessMiseProjectPath
@@ -23,13 +24,14 @@ class MiseVcsEnvCustomizer : VcsEnvCustomizer(), MiseEnvCustomizer {
         envs: MutableMap<String?, String?>,
         context: VcsExecutableContext,
     ) {
-        // 1. Check project exists
+        // Immediately exit if this isn't required. This must always be the first check to avoid recursion
+        if (!MiseCommandLineHelper.environmentNeedsCustomization(envs)) return
+
         if (project == null) return
 
-        // 2. Resolve working directory from context root or fallback to project path
         val workDir = context.root?.path ?: project.guessMiseProjectPath()
 
-        // 3. Shared customization logic (marker check, settings check, customize with error handling)
+        // Perform checks against settings using overridden shouldCustomizeForSettings and if good do the actual customization
         customizeMiseEnvironment(project, workDir, envs)
     }
 
