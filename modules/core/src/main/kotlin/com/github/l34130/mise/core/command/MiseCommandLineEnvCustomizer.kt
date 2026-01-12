@@ -3,6 +3,7 @@ package com.github.l34130.mise.core.command
 import com.github.l34130.mise.core.MiseEnvCustomizer
 import com.github.l34130.mise.core.setting.MiseProjectSettings
 import com.github.l34130.mise.core.util.canSafelyInvokeAndWait
+import com.github.l34130.mise.core.util.waitForProjectCache
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.process.CommandLineEnvCustomizer
 import com.intellij.openapi.components.service
@@ -29,15 +30,15 @@ open class MiseCommandLineEnvCustomizer : CommandLineEnvCustomizer, MiseEnvCusto
         commandLine: GeneralCommandLine,
         environment: MutableMap<String, String>,
     ) {
+        // Immediately exit if this isn't required. This must always be the first check to avoid recursion
+        if (!MiseCommandLineHelper.environmentNeedsCustomization(commandLine.environment)) return
+
         // Skip if in unsafe threading context (WSL/IJent infrastructure, coroutines, etc.)
         // This prevents threading issues, deadlocks, and project detection failures
         if (!canSafelyInvokeAndWait()) {
-            logger.debug("Skipping environment customization due to unsafe threading context")
+            logger.debug("Skipping environment customization due to unsafe threading context. (cmd=$commandLine)")
             return
         }
-
-        // Immediately exit if this isn't required. This must always be the first check to avoid recursion
-        if (!MiseCommandLineHelper.environmentNeedsCustomization(commandLine.environment)) return
 
         // Safe exePath check, this prevents an exception being thrown by a null exePath
         if (MiseCommandLineHelper.safeGetExePath(commandLine) == null) return
@@ -58,7 +59,7 @@ open class MiseCommandLineEnvCustomizer : CommandLineEnvCustomizer, MiseEnvCusto
      * Subclasses can override to skip this check if already filtered by executable name.
      */
     protected open fun shouldCustomizeForProject(project: Project, commandLine: GeneralCommandLine): Boolean {
-        return !project.service<MiseExecutableManager>().matchesMiseExecutablePath(commandLine)
+        return !(project.waitForProjectCache() && project.service<MiseExecutableManager>().matchesMiseExecutablePath(commandLine))
     }
 
     /**

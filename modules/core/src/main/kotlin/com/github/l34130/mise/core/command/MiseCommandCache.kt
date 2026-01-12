@@ -2,7 +2,9 @@ package com.github.l34130.mise.core.command
 
 import com.github.l34130.mise.core.MiseTomlFileVfsListener
 import com.github.l34130.mise.core.cache.MiseCacheService
+import com.github.l34130.mise.core.util.canSafelyInvokeAndWait
 import com.github.l34130.mise.core.util.guessMiseProjectPath
+import com.github.l34130.mise.core.util.waitForProjectCache
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
@@ -11,7 +13,9 @@ import com.intellij.openapi.project.Project
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.util.application
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
@@ -35,7 +39,10 @@ import kotlinx.coroutines.withContext
  * ```
  */
 @Service(Service.Level.PROJECT)
-class MiseCommandCache(private val project: Project) {
+class MiseCommandCache(
+    private val project: Project,
+    private val cs: CoroutineScope
+) {
     private val logger = logger<MiseCommandCache>()
     private val cacheService = project.service<MiseCacheService>()
 
@@ -67,12 +74,13 @@ class MiseCommandCache(private val project: Project) {
      * Proactively warm commonly used commands in background after cache invalidation.
      * This prevents EDT blocking when UI components (tool window, etc.) refresh.
      */
-    private fun warmCommonCommands() {
-        application.executeOnPooledThread {
+    fun warmCommonCommands() {
+        cs.launch(Dispatchers.IO) {
             try {
                 logger.debug("Warming command cache for commonly-used commands")
                 val workDir = project.guessMiseProjectPath()
-                val configEnvironment = project.service<com.github.l34130.mise.core.setting.MiseProjectSettings>().state.miseConfigEnvironment
+                val configEnvironment =
+                    project.service<com.github.l34130.mise.core.setting.MiseProjectSettings>().state.miseConfigEnvironment
 
                 // Warm the version cache
                 MiseCommandLineHelper.getMiseVersion(project, workDir)
@@ -98,8 +106,15 @@ class MiseCommandCache(private val project: Project) {
         cacheKey: MiseCacheKey<T>,
         compute: () -> T
     ): T {
+        // If the project cache isn't warm, this will wait for up to 10 seconds
+        // for it to be ready. Even if it isn't ready, it just carries on and allows
+        // what ever the compute is doing to succeed or fail without the project cache.
+        val waitOnCache: () -> T? = {
+            project.waitForProjectCache()
+            compute()
+        }
         val entry = cacheService.getCachedCommand(cacheKey.key) {
-            CacheEntry(compute() as Any)
+            CacheEntry(waitOnCache() as Any)
         }
 
         @Suppress("UNCHECKED_CAST")
@@ -153,19 +168,8 @@ class MiseCommandCache(private val project: Project) {
                     getCached(cacheKey, compute)
                 }
             }
-            !application.isReadAccessAllowed -> {
-                logger.debug("No read lock, dispatching to EDT")
-            canSafelyInvokeAndWait() -> {
-                // Background thread without read lock, but safe to dispatch to EDT
-                var result: T? = null
-                application.invokeAndWait {
-                    runWithModalProgressBlocking(project, cacheKey.progressTitle) {
-                        result = getCached(cacheKey, compute)
-                    }
-                }
-                result ?: throw ProcessCanceledException()
-            }
-            else -> {
+            application.isReadAccessAllowed -> {
+                // Background thread with read lock - use background progress
                 logger.debug("Background thread with read lock, using background progress")
                 runBlocking {
                     withBackgroundProgress(project, cacheKey.progressTitle) {
@@ -174,6 +178,24 @@ class MiseCommandCache(private val project: Project) {
                         }
                     }
                 }
+            }
+            canSafelyInvokeAndWait() -> {
+                // Background thread without read lock, but safe to dispatch to EDT
+                logger.debug("Background thread without read lock, safe to dispatch to EDT")
+                var result: T? = null
+                application.invokeAndWait {
+                    runWithModalProgressBlocking(project, cacheKey.progressTitle) {
+                        result = getCached(cacheKey, compute)
+                    }
+                }
+                result ?: throw ProcessCanceledException()
+            }
+
+            else -> {
+                // Background thread without read lock, UNSAFE to dispatch to EDT
+                // Fall back to silent background execution without UI progress
+                logger.warn("Background thread without read lock in unsafe context (thread: ${Thread.currentThread().name}), executing without UI")
+                getCached(cacheKey, compute)
             }
         }
     }

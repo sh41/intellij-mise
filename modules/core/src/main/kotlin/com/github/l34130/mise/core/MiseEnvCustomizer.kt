@@ -2,6 +2,7 @@ package com.github.l34130.mise.core
 
 import com.github.l34130.mise.core.command.MiseCommandLineHelper
 import com.github.l34130.mise.core.setting.MiseProjectSettings
+import com.github.l34130.mise.core.util.waitForProjectCache
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
@@ -48,6 +49,7 @@ interface MiseEnvCustomizer {
     ): Boolean {
         val settings = project.service<MiseProjectSettings>().state
         if (!shouldCustomizeForSettings(settings)) return false
+        if (!project.waitForProjectCache()) return false
 
         // 3. Customize with error handling
         try {

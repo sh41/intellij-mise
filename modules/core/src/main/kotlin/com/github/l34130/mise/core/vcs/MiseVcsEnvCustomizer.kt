@@ -5,6 +5,7 @@ import com.github.l34130.mise.core.command.MiseCommandLineHelper
 import com.github.l34130.mise.core.setting.MiseConfigurable
 import com.github.l34130.mise.core.setting.MiseProjectSettings
 import com.github.l34130.mise.core.util.guessMiseProjectPath
+import com.github.l34130.mise.core.util.waitForProjectCache
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.options.UnnamedConfigurable
 import com.intellij.openapi.project.Project
@@ -24,10 +25,10 @@ class MiseVcsEnvCustomizer : VcsEnvCustomizer(), MiseEnvCustomizer {
         envs: MutableMap<String?, String?>,
         context: VcsExecutableContext,
     ) {
-        // Immediately exit if this isn't required. This must always be the first check to avoid recursion
-        if (!MiseCommandLineHelper.environmentNeedsCustomization(envs)) return
-
         if (project == null) return
+        // Immediately exit if this isn't required. This must always be the first check to avoid recursion
+        if (!MiseCommandLineHelper.environmentNeedsCustomization(envs) || !project.waitForProjectCache()) return
+
 
         val workDir = context.root?.path ?: project.guessMiseProjectPath()
 

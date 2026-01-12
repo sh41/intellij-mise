@@ -25,6 +25,9 @@ import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.execution.ParametersListUtil
 import com.intellij.util.messages.Topic
 import com.intellij.util.system.OS
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.nio.file.Path
 import kotlin.io.path.Path
 import kotlin.io.path.absolutePathString
@@ -42,7 +45,10 @@ import kotlin.io.path.absolutePathString
  * - The cached path is modified/deleted (detected via VFS listener)
  */
 @Service(Service.Level.PROJECT)
-class MiseExecutableManager(private val project: Project) {
+class MiseExecutableManager(
+    private val project: Project,
+    private val cs: CoroutineScope
+) {
     private val logger = logger<MiseExecutableManager>()
     private val cacheService = project.service<MiseCacheService>()
 
@@ -76,37 +82,29 @@ class MiseExecutableManager(private val project: Project) {
                 }
             }
         )
-
-        // Warm cache on startup to avoid EDT blocking on first use
-        // This runs in the background and failure is non-fatal
-        application.executeOnPooledThread {
-            try {
-                logger.debug("Warming executable path cache on project startup")
-                getExecutablePath()
-                logger.debug("Executable path cache warmed successfully")
-            } catch (e: Exception) {
-                logger.warn("Failed to warm executable cache on startup - will compute on first use", e)
-            }
-        }
     }
+
 
     /**
      * Handle executable change from any source (settings or VFS).
      * Invalidates cache, broadcasts to listeners, and re-warms cache in the background.
      */
-    private fun handleExecutableChange(reason: String) {
+    fun handleExecutableChange(reason: String) {
         logger.info("Mise executable changed ($reason), invalidating cache and notifying listeners")
         cacheService.invalidateAllExecutables()
+        warmCache()
         project.messageBus.syncPublisher(MISE_EXECUTABLE_CHANGED).run()
+    }
 
-        // Re-warm the cache in the background to avoid EDT blocking on next access
-        application.executeOnPooledThread {
+
+    fun warmCache() {
+        cs.launch(Dispatchers.IO) {
             try {
-                logger.debug("Re-warming executable path cache after invalidation")
+                logger.debug("Warming executable path cache")
                 getExecutablePath()
                 logger.debug("Executable path cache re-warmed successfully")
             } catch (e: Exception) {
-                logger.warn("Failed to re-warm executable cache after invalidation", e)
+                logger.warn("Failed to warm executable cache", e)
             }
         }
     }
@@ -221,10 +219,12 @@ class MiseExecutableManager(private val project: Project) {
         return when {
             shell != null && (distribution != null || OS.CURRENT.platform == Platform.UNIX) -> {
                 // WSL or Unix
+                logger.trace("Detecting mise executable on Linux (workDir: $workDir)")
                 detectOnUnix(workDir, shell, distribution)
             }
 
             OS.CURRENT.platform == Platform.WINDOWS -> {
+                logger.debug("Detecting mise executable on Windows (workDir: $workDir)", Throwable())
                 // Native Windows (not WSL)
                 detectOnWindows()
             }

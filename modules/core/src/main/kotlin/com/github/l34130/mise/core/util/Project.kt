@@ -1,11 +1,12 @@
 package com.github.l34130.mise.core.util
 
+import com.github.l34130.mise.core.MiseProjectService
 import com.intellij.execution.wsl.WSLDistribution
-import com.intellij.execution.wsl.WslPath
+import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
-import com.intellij.util.EnvironmentUtil
 import com.intellij.util.SystemProperties
+import java.util.concurrent.TimeUnit
 
 /**
  * Gets the canonical path for the Mise project directory.
@@ -16,7 +17,13 @@ import com.intellij.util.SystemProperties
  * @return The canonical path of the project directory, or falls back to the user's home directory if unavailable
  */
 fun Project.guessMiseProjectPath(): String {
-    return guessProjectDir()?.canonicalPath ?: SystemProperties.getUserHome()
+    val projectDir = guessProjectDir()
+    val path = projectDir?.canonicalPath ?: SystemProperties.getUserHome()
+    if (projectDir == null) {
+        com.intellij.openapi.diagnostic.Logger.getInstance("com.github.l34130.mise.core.util")
+            .warn("guessProjectDir() returned null for project ${this.name}, falling back to user home: $path")
+    }
+    return path
 }
 
 /**
@@ -29,12 +36,7 @@ fun Project.guessMiseProjectPath(): String {
  * @return Shell path for the project environment, or null if unavailable
  */
 fun Project.getProjectShell(): String? {
-    val projectPath = guessMiseProjectPath()
-    val distribution = WslPath.getDistributionByWindowsUncPath(projectPath)
-
-    // WSL: return Windows UNC path to shell, Native: return $SHELL environment variable
-    return distribution?.getWindowsPath(distribution.shellPath) 
-        ?: EnvironmentUtil.getValue("SHELL")
+    return this.service<MiseProjectService>().getShellPath()
 }
 
 /**
@@ -47,24 +49,13 @@ fun Project.getProjectShell(): String? {
  * @return User home path for the project environment
  */
 fun Project.getUserHomeForProject(): String {
-    val projectPath = guessMiseProjectPath()
-    val distribution = WslPath.getDistributionByWindowsUncPath(projectPath)
-
-    return if (distribution != null) {
-        // WSL: return Windows UNC path to home
-        val userHome = distribution.userHome
-        if (userHome != null) {
-            distribution.getWindowsPath(userHome)
-        } else {
-            // Fallback to system home if WSL home not available
-            SystemProperties.getUserHome()
-        }
-    } else {
-        // Native: return system home
-        SystemProperties.getUserHome()
-    }
+    return this.service<MiseProjectService>().getUserHome()
 }
 
 fun Project.getWslDistribution(): WSLDistribution? {
-    return WslPath.getDistributionByWindowsUncPath(guessMiseProjectPath())
+    return this.service<MiseProjectService>().getWslDistribution()
+}
+
+fun Project.waitForProjectCache(): Boolean {
+    return this.service<MiseProjectService>().isCacheReady.await(10, TimeUnit.SECONDS)
 }
