@@ -2,15 +2,20 @@ package com.github.l34130.mise.core.wsl
 
 import com.github.l34130.mise.core.command.MiseDevTool
 import com.github.l34130.mise.core.setting.MiseApplicationSettings
+import com.github.l34130.mise.core.util.getUserHomeForProject
+import com.github.l34130.mise.core.util.getWslDistribution
 import com.github.l34130.mise.core.wsl.WslPathUtils.convertUnixPathForWsl
 import com.intellij.execution.wsl.WslDistributionManager
 import com.intellij.execution.wsl.WslPath
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.util.application
 import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.Paths
+import kotlin.io.path.Path
 
 /**
  * Utility object for WSL (Windows Subsystem for Linux) path operations and detection.
@@ -267,4 +272,24 @@ object WslPathUtils {
     fun convertToolPathForWsl(tool: MiseDevTool): String {
         return convertUnixPathForWsl(tool.shimsInstallPath())
     }
+}
+
+fun resolveUserHomeAbbreviations(
+    path: String,
+    project: Project
+): Path {
+    val homePrefixes = listOf("~/", "~\\", $$"$HOME/", $$"$HOME\\", $$"${HOME}/", $$"${HOME}\\")
+    val matchingPrefix = homePrefixes.firstOrNull { path.startsWith(it) }
+
+    val resolvedHome = if (matchingPrefix != null) {
+        val userHome = Path(project.getUserHomeForProject())
+        userHome.resolve(path.removePrefix(matchingPrefix)).toAbsolutePath()
+    } else {
+        Path(path).toAbsolutePath()
+    }
+    val distribution = project.getWslDistribution()
+    if (distribution != null && resolvedHome.startsWith("/")) {
+        return Path(distribution.getWindowsPath(resolvedHome.toString()))
+    }
+    return resolvedHome
 }

@@ -5,10 +5,10 @@ import com.github.l34130.mise.core.setting.MiseApplicationSettings
 import com.github.l34130.mise.core.setting.MiseProjectSettings
 import com.github.l34130.mise.core.setting.MiseSettingsListener
 import com.github.l34130.mise.core.util.getProjectShell
-import com.github.l34130.mise.core.util.getUserHomeForProject
 import com.github.l34130.mise.core.util.getWslDistribution
 import com.github.l34130.mise.core.util.guessMiseProjectPath
 import com.github.l34130.mise.core.wsl.WslCommandHelper
+import com.github.l34130.mise.core.wsl.resolveUserHomeAbbreviations
 import com.intellij.execution.Platform
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.wsl.WSLDistribution
@@ -289,7 +289,7 @@ class MiseExecutableManager(
 
                 if (misePath.isNotBlank() && misePath != executable) {
                     // We found the actual path! For WSL, convert to Windows UNC
-                    val result = normalizeMisePath(misePath, distribution).toString()
+                    val result = resolveUserHomeAbbreviations(misePath, project).toString()
                     logger.info("Detected mise executable: $result")
                     return result
                 }
@@ -414,7 +414,7 @@ class MiseExecutableManager(
 
         // Fallback: Check ~/.local/bin/mise
         val defaultMisePath = "~/.local/bin/mise"
-        val localBinPath = normalizeMisePath(defaultMisePath, distribution)
+        val localBinPath = resolveUserHomeAbbreviations(defaultMisePath, project)
 
         if (runCatching { localBinPath.toFile().canExecute() }.getOrNull() == true) {
             val pathStr = localBinPath.absolutePathString()
@@ -437,23 +437,4 @@ class MiseExecutableManager(
         return null
     }
 
-    private fun normalizeMisePath(
-        misePath: String,
-        distribution: WSLDistribution?
-    ): Path {
-        val homePrefixes = listOf("~/", "~\\", $$"$HOME/", $$"$HOME\\", $$"${HOME}/", $$"${HOME}\\")
-        val matchingPrefix = homePrefixes.firstOrNull { misePath.startsWith(it) }
-
-        val resolvedHome = if (matchingPrefix != null) {
-            val userHome = Path(project.getUserHomeForProject())
-            userHome.resolve(misePath.removePrefix(matchingPrefix)).toAbsolutePath()
-        } else {
-            Path(misePath).toAbsolutePath()
-        }
-
-        if (distribution != null && resolvedHome.startsWith("/")) {
-            return Path(distribution.getWindowsPath(resolvedHome.toString()))
-        }
-        return resolvedHome
-    }
 }

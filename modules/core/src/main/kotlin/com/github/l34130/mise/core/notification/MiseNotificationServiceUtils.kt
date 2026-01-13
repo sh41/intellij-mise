@@ -6,6 +6,7 @@ import com.github.l34130.mise.core.command.MiseCommandLineException
 import com.github.l34130.mise.core.command.MiseCommandLineHelper
 import com.github.l34130.mise.core.command.MiseCommandLineNotTrustedConfigFileException
 import com.github.l34130.mise.core.setting.MiseProjectSettings
+import com.github.l34130.mise.core.wsl.resolveUserHomeAbbreviations
 import com.intellij.notification.NotificationAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
@@ -45,6 +46,8 @@ object MiseNotificationServiceUtils {
                         logger.debug("==> [DEBOUNCE] Showing notification and caching key: $debounceKey")
                         debounceMap.put(debounceKey, Unit)
 
+
+
                         notificationService.warn(
                             "Config file is not trusted.",
                             """
@@ -54,14 +57,13 @@ object MiseNotificationServiceUtils {
                             NotificationAction.createSimple(
                                 "`mise trust`",
                             ) {
-                                val absolutePath = FileUtil.expandUserHome(throwable.configFilePath)
                                 logger.debug("Trust action triggered for: ${throwable.configFilePath}")
-
                                 runAsync {
-                                    // Try to guess which project the config file belongs to
+                                    val vfsWorkingDir = VirtualFileManager.getInstance().findFileByNioPath(throwable.generalCommandLine.workDirectory.toPath())
+                                    val guessedProjectCloseEnoughForUserHome = vfsWorkingDir?.let { guessProjectForFile(it) } ?: project
+                                    val absolutePath = resolveUserHomeAbbreviations(throwable.configFilePath, guessedProjectCloseEnoughForUserHome).toString()
                                     val vf = VirtualFileManager.getInstance().findFileByUrl("file://$absolutePath")
                                     val guessedProject = vf?.let { guessProjectForFile(it) } ?: project
-
                                     // Get the config environment from the project settings
                                     val configEnvironment = guessedProject.service<MiseProjectSettings>().state.miseConfigEnvironment
 
