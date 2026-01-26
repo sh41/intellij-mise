@@ -6,16 +6,34 @@ import com.intellij.execution.wsl.WSLDistribution
 import com.intellij.execution.wsl.WslDistributionManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.progress.EmptyProgressIndicator
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
+import com.intellij.openapi.util.Computable
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.psi.util.CachedValue
+import com.intellij.psi.util.CachedValueProvider
+import com.intellij.psi.util.CachedValuesManager
 import com.intellij.util.EnvironmentUtil
 import com.intellij.util.SystemProperties
 import com.intellij.util.application
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 private val logger = Logger.getInstance("com.github.l34130.mise.core.util.Project")
+
+private data class ProjectInfo(
+    val wslDistribution: WSLDistribution?,
+    val userHome: String,
+    val shellPath: String?
+)
+
+private val PROJECT_INFO_KEY = Key.create<CachedValue<ProjectInfo>>("mise.project.info")
+private val PROJECT_CACHE_LATCH_KEY = Key.create<CountDownLatch>("mise.project.cache.latch")
 
 /**
  * Gets the canonical path for the Mise project directory.
@@ -65,14 +83,7 @@ fun Project.guessMiseProjectDir(): VirtualFile {
  * @return Shell path for the project environment, or null if unavailable
  */
 fun Project.getProjectShell(): String? {
-    val distribution = getWslDistribution()
-    if (distribution != null) {
-        val shellPath = distribution.shellPath
-        if (shellPath.isNotBlank()) {
-            return distribution.getWindowsPath(shellPath)
-        }
-    }
-    return EnvironmentUtil.getValue("SHELL")
+    return getProjectInfo().shellPath
 }
 
 /**
@@ -85,17 +96,80 @@ fun Project.getProjectShell(): String? {
  * @return User home path for the project environment
  */
 fun Project.getUserHomeForProject(): String {
-    val distribution = getWslDistribution()
-    if (distribution != null) {
-        val userHome = distribution.userHome
-        if (!userHome.isNullOrBlank()) {
-            return distribution.getWindowsPath(userHome)
-        }
-    }
-    return SystemProperties.getUserHome()
+    return getProjectInfo().userHome
 }
 
 fun Project.getWslDistribution(): WSLDistribution? {
+    return getProjectInfo().wslDistribution
+}
+
+fun Project.prewarmProjectInfo() {
+    getProjectInfo()
+}
+
+fun Project.markProjectCacheReady() {
+    getProjectCacheLatch().countDown()
+}
+
+private fun Project.getProjectInfo(): ProjectInfo {
+    val project = this
+    val cachedValuesManager = CachedValuesManager.getManager(project)
+    return cachedValuesManager.getCachedValue(
+        project,
+        PROJECT_INFO_KEY,
+        {
+            val info =
+                if (SystemInfo.isWindows) {
+                    runWithProgressIndicator { project.computeProjectInfo() }
+                } else {
+                    project.computeProjectInfo()
+                }
+            val cachedResult = CachedValueProvider.Result.create(info)
+            project.markProjectCacheReady()
+            cachedResult
+        },
+        false,
+    )
+}
+
+private fun Project.computeProjectInfo(): ProjectInfo {
+    if (!SystemInfo.isWindows) {
+        logger.debug("Project info skipped: non-Windows project")
+        return ProjectInfo(
+            wslDistribution = null,
+            userHome = SystemProperties.getUserHome(),
+            shellPath = EnvironmentUtil.getValue("SHELL")
+        )
+    }
+
+    val distribution = resolveWslDistribution()
+    val userHome = distribution?.userHome
+    val resolvedUserHome =
+        if (!userHome.isNullOrBlank()) {
+            distribution.getWindowsPath(userHome)
+        } else {
+            SystemProperties.getUserHome()
+        }
+
+    val shellPath = distribution?.shellPath
+    val resolvedShellPath =
+        if (!shellPath.isNullOrBlank()) {
+            distribution.getWindowsPath(shellPath)
+        } else {
+            EnvironmentUtil.getValue("SHELL")
+        }
+
+    val info = ProjectInfo(
+        wslDistribution = distribution,
+        userHome = resolvedUserHome,
+        shellPath = resolvedShellPath
+    )
+    val distroId = distribution?.msId ?: "null"
+    logger.debug("Project info cached: distro=$distroId userHome=$resolvedUserHome shellPath=${resolvedShellPath ?: "null"}")
+    return info
+}
+
+private fun Project.resolveWslDistribution(): WSLDistribution? {
     if (!SystemInfo.isWindows) return null
 
     val projectPath = guessMiseProjectPath()
@@ -108,11 +182,37 @@ fun Project.getWslDistribution(): WSLDistribution? {
 
     if (distributionId.isNullOrBlank()) return null
 
-    return WslDistributionManager.getInstance().installedDistributions
-        .firstOrNull { it.msId.equals(distributionId, ignoreCase = true) }
+    val manager = WslDistributionManager.getInstance()
+    return manager.cachedInstalledDistributions?.firstOrNull { it.msId.equals(distributionId, ignoreCase = true) }
+        ?: manager.installedDistributions.firstOrNull { it.msId.equals(distributionId, ignoreCase = true) }
+}
+
+private fun Project.getProjectCacheLatch(): CountDownLatch {
+    return synchronized(this) {
+        getUserData(PROJECT_CACHE_LATCH_KEY) ?: CountDownLatch(1).also { latch ->
+            putUserData(PROJECT_CACHE_LATCH_KEY, latch)
+        }
+    }
+}
+
+private fun <T> runWithProgressIndicator(action: () -> T): T {
+    val progressManager = ProgressManager.getInstance()
+    val indicator = progressManager.progressIndicator
+    return if (indicator != null) {
+        action()
+    } else {
+        progressManager.runProcess(
+            Computable<T> { action() },
+            EmptyProgressIndicator()
+        )
+    }
 }
 
 fun Project.waitForProjectCache(): Boolean {
-    // Previously waited on async project cache; resolution is now synchronous.
-    return true
+    return try {
+        getProjectCacheLatch().await(10, TimeUnit.SECONDS)
+    } catch (_: InterruptedException) {
+        Thread.currentThread().interrupt()
+        false
+    }
 }
