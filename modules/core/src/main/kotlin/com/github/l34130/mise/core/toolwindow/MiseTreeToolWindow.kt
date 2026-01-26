@@ -12,11 +12,7 @@ import com.intellij.ide.util.treeView.NodeDescriptor
 import com.intellij.ide.util.treeView.NodeRenderer
 import com.intellij.ide.util.treeView.TreeState
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.actionSystem.ActionManager
-import com.intellij.openapi.actionSystem.ActionPlaces
-import com.intellij.openapi.actionSystem.AnAction
-import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.runInEdt
 import com.intellij.openapi.components.service
 import com.intellij.openapi.options.ShowSettingsUtil
@@ -144,13 +140,13 @@ class MiseTreeToolWindow(
         val connection = project.messageBus.connect(this)
 
         connection.subscribe(MiseTomlFileListener.MISE_TOML_CHANGED) {
-            runInEdt { redrawContent() }
+            invalidateCachesAndRefresh()
         }
 
         connection.subscribe(
             MiseExecutableManager.MISE_EXECUTABLE_CHANGED,
             Runnable {
-                runInEdt { redrawContent() }
+                invalidateCachesAndRefresh()
             }
         )
 
@@ -158,7 +154,7 @@ class MiseTreeToolWindow(
             MiseSettingsListener.TOPIC,
             object : MiseSettingsListener {
                 override fun settingsChanged() {
-                    runInEdt { redrawContent() }
+                    invalidateCachesAndRefresh()
                 }
             }
         )
@@ -202,10 +198,7 @@ class MiseTreeToolWindow(
     private fun invalidateCachesAndRefresh() {
         // Invalidate MiseTaskResolver cache (used by tool window)
         project.service<MiseTaskResolver>().invalidateCache()
-
-        // Invalidate MiseCommandCache (used by other features)
         project.service<MiseCacheService>().invalidateAllCommands()
-
         // Redraw the tree
         runInEdt { redrawContent() }
     }
