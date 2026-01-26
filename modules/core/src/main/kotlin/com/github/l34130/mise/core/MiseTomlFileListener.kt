@@ -8,6 +8,7 @@ import com.intellij.openapi.util.ZipperUpdater
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileContentsChangedAdapter
 import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.openapi.vfs.VirtualFilePropertyEvent
 import com.intellij.openapi.vfs.impl.BulkVirtualFileListenerAdapter
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
@@ -57,6 +58,16 @@ class MiseTomlFileListener(
 
             override fun onBeforeFileChange(fileOrDirectory: VirtualFile) {
                 updater.onFileChange(fileOrDirectory)
+            }
+
+            // Called BEFORE property change - file still has OLD value
+            override fun beforePropertyChange(event: VirtualFilePropertyEvent) {
+                updater.onFileChange(event.file)
+            }
+
+            // Called AFTER property change - file now has NEW value
+            override fun propertyChanged(event: VirtualFilePropertyEvent) {
+                updater.onFileChange(event.file)
             }
         }
     ) {
