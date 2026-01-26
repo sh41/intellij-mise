@@ -7,8 +7,8 @@ import com.github.l34130.mise.core.setting.MiseSettingsListener
 import com.github.l34130.mise.core.util.getProjectShell
 import com.github.l34130.mise.core.util.getWslDistribution
 import com.github.l34130.mise.core.util.guessMiseProjectPath
-import com.github.l34130.mise.core.wsl.WslCommandHelper
-import com.github.l34130.mise.core.wsl.resolveUserHomeAbbreviations
+import com.github.l34130.mise.core.wsl.WslPathUtils.maybeConvertWindowsUncToUnixPath
+import com.github.l34130.mise.core.wsl.WslPathUtils.resolveUserHomeAbbreviations
 import com.intellij.execution.Platform
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.wsl.WSLDistribution
@@ -259,12 +259,10 @@ class MiseExecutableManager(
         assertBackgroundThread()
 
         try {
-            val posixExecutable = distribution?.let { dist ->
-                WslCommandHelper.convertWslPathsInString(executable, dist)
-            } ?: executable
+            val nativeExecuatable = maybeConvertWindowsUncToUnixPath(executable)
 
             // Build the full command: shell shellArgs "<executable> version -vv"
-            val fullCommand = "$posixExecutable $MISE_VERSION_COMMAND"
+            val fullCommand = "$nativeExecuatable $MISE_VERSION_COMMAND"
             val commandLine = GeneralCommandLine(listOf(shellCommand) + shellArgs + listOf(fullCommand))
                 .withWorkingDirectory(Path.of(workDir))
 
