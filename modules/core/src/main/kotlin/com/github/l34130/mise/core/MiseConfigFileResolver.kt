@@ -9,6 +9,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.findFileOrDirectory
 import com.intellij.openapi.vfs.isFile
 import com.intellij.util.containers.addIfNotNull
+import com.intellij.util.application
 import fleet.multiplatform.shims.ConcurrentHashMap
 
 @Service(Service.Level.PROJECT)
@@ -33,7 +34,9 @@ class MiseConfigFileResolver(
         configEnvironment: String? = null,
     ): List<VirtualFile> {
         val cacheKey = "${baseDirVf.path}:${configEnvironment.orEmpty()}"
-        if (!refresh) cache[cacheKey]?.let { return it }
+        if (!refresh && !application.isUnitTestMode) {
+            cache[cacheKey]?.let { return it }
+        }
 
         // Parse environments outside readAction for efficiency
         val environments = if (!configEnvironment.isNullOrBlank()) {
@@ -69,7 +72,9 @@ class MiseConfigFileResolver(
                 }
             }
 
-        cache[cacheKey] = result
+        if (!application.isUnitTestMode) {
+            cache[cacheKey] = result
+        }
         return result
     }
 

@@ -1,12 +1,16 @@
 package com.github.l34130.mise.core.util
 
-import com.github.l34130.mise.core.MiseProjectService
+import com.github.l34130.mise.core.setting.MiseApplicationSettings
+import com.github.l34130.mise.core.wsl.WslPathUtils
 import com.intellij.execution.wsl.WSLDistribution
+import com.intellij.execution.wsl.WslDistributionManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
+import com.intellij.openapi.util.SystemInfo
+import com.intellij.util.EnvironmentUtil
 import com.intellij.util.SystemProperties
-import java.util.concurrent.TimeUnit
+import com.intellij.util.application
 
 /**
  * Gets the canonical path for the Mise project directory.
@@ -36,7 +40,14 @@ fun Project.guessMiseProjectPath(): String {
  * @return Shell path for the project environment, or null if unavailable
  */
 fun Project.getProjectShell(): String? {
-    return this.service<MiseProjectService>().getShellPath()
+    val distribution = getWslDistribution()
+    if (distribution != null) {
+        val shellPath = distribution.shellPath
+        if (!shellPath.isNullOrBlank()) {
+            return distribution.getWindowsPath(shellPath)
+        }
+    }
+    return EnvironmentUtil.getValue("SHELL")
 }
 
 /**
@@ -49,13 +60,34 @@ fun Project.getProjectShell(): String? {
  * @return User home path for the project environment
  */
 fun Project.getUserHomeForProject(): String {
-    return this.service<MiseProjectService>().getUserHome()
+    val distribution = getWslDistribution()
+    if (distribution != null) {
+        val userHome = distribution.userHome
+        if (!userHome.isNullOrBlank()) {
+            return distribution.getWindowsPath(userHome)
+        }
+    }
+    return SystemProperties.getUserHome()
 }
 
 fun Project.getWslDistribution(): WSLDistribution? {
-    return this.service<MiseProjectService>().getWslDistribution()
+    if (!SystemInfo.isWindows) return null
+
+    val projectPath = guessMiseProjectPath()
+    val distributionId =
+        WslPathUtils.extractDistribution(projectPath)
+            ?: run {
+                val configuredPath = application.service<MiseApplicationSettings>().state.executablePath
+                configuredPath.takeIf { it.isNotBlank() }?.let { WslPathUtils.extractDistribution(it) }
+            }
+
+    if (distributionId.isNullOrBlank()) return null
+
+    return WslDistributionManager.getInstance().installedDistributions
+        .firstOrNull { it.msId.equals(distributionId, ignoreCase = true) }
 }
 
 fun Project.waitForProjectCache(): Boolean {
-    return this.service<MiseProjectService>().isCacheReady.await(10, TimeUnit.SECONDS)
+    // Previously waited on async project cache; resolution is now synchronous.
+    return true
 }

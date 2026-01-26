@@ -20,6 +20,7 @@ import com.intellij.openapi.vfs.isFile
 import com.intellij.openapi.vfs.resolveFromRootOrRelative
 import com.intellij.openapi.vfs.toNioPathOrNull
 import com.intellij.psi.util.childrenOfType
+import com.intellij.util.application
 import fleet.multiplatform.shims.ConcurrentHashMap
 import org.toml.lang.psi.TomlFile
 import org.toml.lang.psi.TomlTable
@@ -56,13 +57,20 @@ class MiseTaskResolver(
     ): List<MiseTask> {
         val baseDirVf: VirtualFile =
             readAction {
-                VirtualFileManager.getInstance().findFileByUrl("file://${project.baseDirectory()}")
+                if (application.isUnitTestMode) {
+                    VirtualFileManager.getInstance().findFileByUrl("temp:///src")
+                        ?: VirtualFileManager.getInstance().findFileByUrl("file://${project.baseDirectory()}")
+                } else {
+                    VirtualFileManager.getInstance().findFileByUrl("file://${project.baseDirectory()}")
+                }
             } ?: return emptyList()
 
         val configEnvironment = configEnvironment ?: project.service<MiseProjectSettings>().state.miseConfigEnvironment
 
         val cacheKey = configEnvironment
-        if (!refresh) cache[cacheKey]?.let { return it }
+        if (!refresh && !application.isUnitTestMode) {
+            cache[cacheKey]?.let { return it }
+        }
 
         val result = mutableListOf<MiseTask>()
         val configVfs = project.service<MiseConfigFileResolver>().resolveConfigFiles(baseDirVf, refresh, configEnvironment)
@@ -112,7 +120,9 @@ class MiseTaskResolver(
             }
         }
 
-        cache[cacheKey] = result
+        if (!application.isUnitTestMode) {
+            cache[cacheKey] = result
+        }
         return result
     }
 

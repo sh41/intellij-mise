@@ -1,7 +1,7 @@
 package com.github.l34130.mise.core.toolwindow
 
 import com.github.l34130.mise.core.MiseTaskResolver
-import com.github.l34130.mise.core.MiseTomlFileVfsListener
+import com.github.l34130.mise.core.MiseTomlFileListener
 import com.github.l34130.mise.core.cache.MiseCacheService
 import com.github.l34130.mise.core.command.MiseExecutableManager
 import com.github.l34130.mise.core.setting.MiseConfigurable
@@ -143,12 +143,9 @@ class MiseTreeToolWindow(
         // Subscribe to cache invalidation events for automatic refresh
         val connection = project.messageBus.connect(this)
 
-        connection.subscribe(
-            MiseTomlFileVfsListener.MISE_TOML_CHANGED,
-            Runnable {
-                runInEdt { redrawContent() }
-            }
-        )
+        connection.subscribe(MiseTomlFileListener.MISE_TOML_CHANGED) {
+            runInEdt { redrawContent() }
+        }
 
         connection.subscribe(
             MiseExecutableManager.MISE_EXECUTABLE_CHANGED,
