@@ -1,6 +1,7 @@
 package com.github.l34130.mise.core.command
 
 import com.github.l34130.mise.core.util.guessMiseProjectPath
+import com.github.l34130.mise.core.wsl.WslPathUtils.maybeConvertWindowsUncToUnixPath
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
@@ -8,7 +9,6 @@ import com.intellij.openapi.project.ProjectLocator
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import java.nio.file.Paths
-import kotlin.String
 import kotlin.io.path.pathString
 
 object MiseCommandLineHelper {
@@ -265,7 +265,8 @@ object MiseCommandLineHelper {
         configFilePath: String,
         configEnvironment: String,
     ): Result<Unit> {
-        val commandLineArgs = mutableListOf("trust", configFilePath)
+        val wslSafePathConfigPath = maybeConvertWindowsUncToUnixPath(configFilePath)
+        val commandLineArgs = mutableListOf("trust", wslSafePathConfigPath)
 
         // Use the project's base path as the working directory to ensure correct mise context
         // (Windows mise for Windows projects, WSL mise for WSL projects)

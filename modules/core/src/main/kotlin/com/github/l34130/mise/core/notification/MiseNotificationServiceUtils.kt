@@ -6,7 +6,7 @@ import com.github.l34130.mise.core.command.MiseCommandLineException
 import com.github.l34130.mise.core.command.MiseCommandLineHelper
 import com.github.l34130.mise.core.command.MiseCommandLineNotTrustedConfigFileException
 import com.github.l34130.mise.core.setting.MiseProjectSettings
-import com.github.l34130.mise.core.wsl.resolveUserHomeAbbreviations
+import com.github.l34130.mise.core.wsl.WslPathUtils.resolveUserHomeAbbreviations
 import com.intellij.notification.NotificationAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
@@ -61,6 +61,7 @@ object MiseNotificationServiceUtils {
                                 runAsync {
                                     val vfsWorkingDir = VirtualFileManager.getInstance().findFileByNioPath(throwable.generalCommandLine.workDirectory.toPath())
                                     val guessedProjectCloseEnoughForUserHome = vfsWorkingDir?.let { guessProjectForFile(it) } ?: project
+                                    // Returns a full wsl path if the file is on WSL, which is then handled appropriately by the trust command.
                                     val absolutePath = resolveUserHomeAbbreviations(throwable.configFilePath, guessedProjectCloseEnoughForUserHome).toString()
                                     val vf = VirtualFileManager.getInstance().findFileByUrl("file://$absolutePath")
                                     val guessedProject = vf?.let { guessProjectForFile(it) } ?: project

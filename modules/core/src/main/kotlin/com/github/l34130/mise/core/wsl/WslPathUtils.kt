@@ -182,10 +182,11 @@ object WslPathUtils {
         if (uncPath.isBlank()) return null
 
         // Use IntelliJ's WslPath API for parsing
-        val normalizedPath = uncPath.replace('/', '\\')
-        val wslPath = WslPath.parseWindowsUncPath(normalizedPath) ?: return null
+        val wslPath = WslPath.parseWindowsUncPath(uncPath) ?: return null
         return wslPath.linuxPath
     }
+
+    fun maybeConvertWindowsUncToUnixPath(maybeUncPath: String): String = convertWindowsUncToUnixPath(maybeUncPath) ?: maybeUncPath
 
     /**
      * Validates that a UNC path exists and is accessible.
@@ -272,24 +273,24 @@ object WslPathUtils {
     fun convertToolPathForWsl(tool: MiseDevTool): String {
         return convertUnixPathForWsl(tool.shimsInstallPath())
     }
-}
 
-fun resolveUserHomeAbbreviations(
-    path: String,
-    project: Project
-): Path {
-    val homePrefixes = listOf("~/", "~\\", $$"$HOME/", $$"$HOME\\", $$"${HOME}/", $$"${HOME}\\")
-    val matchingPrefix = homePrefixes.firstOrNull { path.startsWith(it) }
+    fun resolveUserHomeAbbreviations(
+        path: String,
+        project: Project
+    ): Path {
+        val homePrefixes = listOf("~/", "~\\", $$"$HOME/", $$"$HOME\\", $$"${HOME}/", $$"${HOME}\\")
+        val matchingPrefix = homePrefixes.firstOrNull { path.startsWith(it) }
 
-    val resolvedHome = if (matchingPrefix != null) {
-        val userHome = Path(project.getUserHomeForProject())
-        userHome.resolve(path.removePrefix(matchingPrefix)).toAbsolutePath()
-    } else {
-        Path(path).toAbsolutePath()
+        val resolvedHome = if (matchingPrefix != null) {
+            val userHome = Path(project.getUserHomeForProject())
+            userHome.resolve(path.removePrefix(matchingPrefix)).toAbsolutePath()
+        } else {
+            Path(path).toAbsolutePath()
+        }
+        val distribution = project.getWslDistribution()
+        if (distribution != null && resolvedHome.startsWith("/")) {
+            return Path(distribution.getWindowsPath(resolvedHome.toString()))
+        }
+        return resolvedHome
     }
-    val distribution = project.getWslDistribution()
-    if (distribution != null && resolvedHome.startsWith("/")) {
-        return Path(distribution.getWindowsPath(resolvedHome.toString()))
-    }
-    return resolvedHome
 }
