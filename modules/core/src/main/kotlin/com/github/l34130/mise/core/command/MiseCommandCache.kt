@@ -1,10 +1,13 @@
 package com.github.l34130.mise.core.command
 
 import com.github.l34130.mise.core.MiseTomlFileListener
+import com.github.l34130.mise.core.cache.MiseProjectEvent
+import com.github.l34130.mise.core.cache.MiseProjectEventListener
 import com.github.l34130.mise.core.cache.MiseCacheService
 import com.github.l34130.mise.core.util.canSafelyInvokeAndWait
 import com.github.l34130.mise.core.util.guessMiseProjectPath
 import com.github.l34130.mise.core.util.waitForProjectCache
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
@@ -24,8 +27,9 @@ import kotlinx.coroutines.withContext
  * Smart cache for mise commands with broadcast-based invalidation and proactive warming.
  *
  * Cache is invalidated when:
- * - Any mise config file changes (via MiseTomlFileListener.MISE_TOML_CHANGED)
- * - Mise executable changes (via MiseExecutableManager.MISE_EXECUTABLE_CHANGED)
+ * - Any mise config file changes
+ * - Mise executable changes
+ * - Relevant settings changes
  *
  * After invalidation, commonly used commands (env, ls) are proactively re-warmed in background
  * to avoid EDT blocking on next access.
@@ -42,7 +46,7 @@ import kotlinx.coroutines.withContext
 class MiseCommandCache(
     private val project: Project,
     private val cs: CoroutineScope
-) {
+) : Disposable {
     private val logger = logger<MiseCommandCache>()
     private val cacheService = project.service<MiseCacheService>()
 
@@ -50,24 +54,18 @@ class MiseCommandCache(
         // Ensure VFS listener is initialized so config changes trigger cache invalidation.
         project.service<MiseTomlFileListener>()
 
-        val connection = project.messageBus.connect()
-
-        // Subscribe to mise config file changes
-        connection.subscribe(MiseTomlFileListener.MISE_TOML_CHANGED) {
-            logger.info("Mise config changed, invalidating entire cache")
-            cacheService.invalidateAllCommands()
-            warmCommonCommands()
-        }
-
-        // Subscribe to mise executable changes
-        connection.subscribe(
-            MiseExecutableManager.MISE_EXECUTABLE_CHANGED,
-            Runnable {
-                logger.info("Mise executable changed, invalidating entire cache")
-                cacheService.invalidateAllCommands()
-                warmCommonCommands()
+        MiseProjectEventListener.subscribe(project, this) { event ->
+            when (event.kind) {
+                MiseProjectEvent.Kind.STARTUP -> warmCommonCommands()
+                MiseProjectEvent.Kind.SETTINGS_CHANGED,
+                MiseProjectEvent.Kind.EXECUTABLE_CHANGED,
+                MiseProjectEvent.Kind.TOML_CHANGED -> {
+                    logger.info("Mise project event ${event.kind}, invalidating entire cache")
+                    cacheService.invalidateAllCommands()
+                    warmCommonCommands()
+                }
             }
-        )
+        }
     }
 
     /**
@@ -205,4 +203,7 @@ class MiseCommandCache(
     private data class CacheEntry(
         val value: Any
     )
+
+    override fun dispose() {
+    }
 }

@@ -1,11 +1,10 @@
 package com.github.l34130.mise.core.toolwindow
 
 import com.github.l34130.mise.core.MiseTaskResolver
-import com.github.l34130.mise.core.MiseTomlFileListener
 import com.github.l34130.mise.core.cache.MiseCacheService
-import com.github.l34130.mise.core.command.MiseExecutableManager
+import com.github.l34130.mise.core.cache.MiseProjectEvent
+import com.github.l34130.mise.core.cache.MiseProjectEventListener
 import com.github.l34130.mise.core.setting.MiseConfigurable
-import com.github.l34130.mise.core.setting.MiseSettingsListener
 import com.intellij.icons.AllIcons
 import com.intellij.ide.util.treeView.AbstractTreeNode
 import com.intellij.ide.util.treeView.NodeDescriptor
@@ -26,6 +25,7 @@ import com.intellij.ui.tree.AsyncTreeModel
 import com.intellij.ui.tree.StructureTreeModel
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.concurrency.Invoker
+import com.intellij.util.application
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.tree.TreeUtil
 import java.awt.Component
@@ -137,27 +137,16 @@ class MiseTreeToolWindow(
         )
 
         // Subscribe to cache invalidation events for automatic refresh
-        val connection = project.messageBus.connect(this)
-
-        connection.subscribe(MiseTomlFileListener.MISE_TOML_CHANGED) {
-            invalidateCachesAndRefresh()
-        }
-
-        connection.subscribe(
-            MiseExecutableManager.MISE_EXECUTABLE_CHANGED,
-            Runnable {
-                invalidateCachesAndRefresh()
-            }
-        )
-
-        connection.subscribe(
-            MiseSettingsListener.TOPIC,
-            object : MiseSettingsListener {
-                override fun settingsChanged() {
-                    invalidateCachesAndRefresh()
+        MiseProjectEventListener.subscribe(project, this) { event ->
+            when (event.kind) {
+                MiseProjectEvent.Kind.STARTUP -> Unit
+                MiseProjectEvent.Kind.SETTINGS_CHANGED,
+                MiseProjectEvent.Kind.EXECUTABLE_CHANGED,
+                MiseProjectEvent.Kind.TOML_CHANGED -> {
+                    scheduleRefresh()
                 }
             }
-        )
+        }
 
         redrawContent()
 
@@ -201,6 +190,15 @@ class MiseTreeToolWindow(
         project.service<MiseCacheService>().invalidateAllCommands()
         // Redraw the tree
         runInEdt { redrawContent() }
+    }
+
+    private fun scheduleRefresh() {
+        if (project.isDisposed) return
+        application.invokeLater {
+            if (!project.isDisposed) {
+                redrawContent()
+            }
+        }
     }
 
     fun redrawContent() {

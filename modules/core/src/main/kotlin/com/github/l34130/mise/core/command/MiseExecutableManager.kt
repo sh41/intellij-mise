@@ -1,9 +1,10 @@
 package com.github.l34130.mise.core.command
 
+import com.github.l34130.mise.core.cache.MiseProjectEvent
+import com.github.l34130.mise.core.cache.MiseProjectEventListener
 import com.github.l34130.mise.core.cache.MiseCacheService
 import com.github.l34130.mise.core.setting.MiseApplicationSettings
 import com.github.l34130.mise.core.setting.MiseProjectSettings
-import com.github.l34130.mise.core.setting.MiseSettingsListener
 import com.github.l34130.mise.core.util.getProjectShell
 import com.github.l34130.mise.core.util.getWslDistribution
 import com.github.l34130.mise.core.util.guessMiseProjectPath
@@ -12,6 +13,7 @@ import com.github.l34130.mise.core.wsl.WslPathUtils.resolveUserHomeAbbreviations
 import com.intellij.execution.Platform
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.wsl.WSLDistribution
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
@@ -24,7 +26,6 @@ import com.intellij.util.application
 import com.intellij.util.concurrency.ThreadingAssertions.assertBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.execution.ParametersListUtil
-import com.intellij.util.messages.Topic
 import com.intellij.util.system.OS
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,24 +50,21 @@ import kotlin.io.path.absolutePathString
 class MiseExecutableManager(
     private val project: Project,
     private val cs: CoroutineScope
-) {
+) : Disposable {
     private val logger = logger<MiseExecutableManager>()
     private val cacheService = project.service<MiseCacheService>()
 
     init {
-        val connection = project.messageBus.connect()
-
-        // Listen to settings changes
-        connection.subscribe(
-            MiseSettingsListener.TOPIC,
-            object : MiseSettingsListener {
-                override fun settingsChanged() {
-                    handleExecutableChange("settings changed")
-                }
+        MiseProjectEventListener.subscribe(project, this) { event ->
+            when (event.kind) {
+                MiseProjectEvent.Kind.STARTUP -> warmCache()
+                MiseProjectEvent.Kind.SETTINGS_CHANGED -> handleExecutableChange("settings changed")
+                else -> Unit
             }
-        )
+        }
 
         // Listen to file system changes
+        val connection = project.messageBus.connect(this)
         connection.subscribe(
             VirtualFileManager.VFS_CHANGES,
             object : BulkFileListener {
@@ -77,7 +75,8 @@ class MiseExecutableManager(
                         val execCached = cacheService.getCachedExecutable(EXECUTABLE_KEY)
                         val autoCached = cacheService.getCachedExecutable(AUTO_DETECTED_KEY)
                         if ((path == execCached) || (path == autoCached)) {
-                            handleExecutableChange("file changed: $path")
+                            val forceBroadcast = path == execCached
+                            handleExecutableChange("file changed: $path", forceBroadcast)
                         }
                     }
                 }
@@ -90,23 +89,59 @@ class MiseExecutableManager(
      * Handle executable change from any source (settings or VFS).
      * Invalidates cache, broadcasts to listeners, and re-warms cache in the background.
      */
-    fun handleExecutableChange(reason: String) {
-        logger.info("Mise executable changed ($reason), invalidating cache and notifying listeners")
+    fun handleExecutableChange(reason: String, forceBroadcast: Boolean = false) {
+        val previousPath = cacheService.getCachedExecutable(EXECUTABLE_KEY)
         cacheService.invalidateAllExecutables()
-        warmCache()
-        project.messageBus.syncPublisher(MISE_EXECUTABLE_CHANGED).run()
+        cs.launch(Dispatchers.IO) {
+            val newPath = refreshExecutablePathCache()
+
+            if (forceBroadcast) {
+                logger.info("Mise executable changed ($reason), notifying listeners")
+                MiseProjectEventListener.broadcast(
+                    project,
+                    MiseProjectEvent(MiseProjectEvent.Kind.EXECUTABLE_CHANGED, reason)
+                )
+                return@launch
+            }
+
+            if (newPath == null) {
+                return@launch
+            }
+
+            if (previousPath == null) {
+                logger.debug("Executable path cache was empty; skipping change broadcast")
+                return@launch
+            }
+
+            if (previousPath == newPath) {
+                logger.debug("Executable path unchanged; skipping change broadcast")
+                return@launch
+            }
+
+            logger.info("Mise executable changed ($reason), notifying listeners")
+            MiseProjectEventListener.broadcast(
+                project,
+                MiseProjectEvent(MiseProjectEvent.Kind.EXECUTABLE_CHANGED, reason)
+            )
+        }
     }
 
 
     fun warmCache() {
         cs.launch(Dispatchers.IO) {
-            try {
-                logger.debug("Warming executable path cache")
-                getExecutablePath()
-                logger.debug("Executable path cache re-warmed successfully")
-            } catch (e: Exception) {
-                logger.warn("Failed to warm executable cache", e)
-            }
+            refreshExecutablePathCache()
+        }
+    }
+
+    private fun refreshExecutablePathCache(): String? {
+        return try {
+            logger.debug("Warming executable path cache")
+            val newPath = getExecutablePath()
+            logger.debug("Executable path cache re-warmed successfully")
+            newPath
+        } catch (e: Exception) {
+            logger.warn("Failed to warm executable cache", e)
+            null
         }
     }
 
@@ -119,20 +154,6 @@ class MiseExecutableManager(
          * Using -vv ensures the debug output shows the actual executable path.
          */
         private const val MISE_VERSION_COMMAND = "version -vv"
-
-        /**
-         * Topic broadcast when the mise executable path changes.
-         * This includes changes from:
-         * - User modifying executable path in settings
-         * - Executable file being modified/deleted via VFS
-         */
-        @JvmField
-        @Topic.ProjectLevel
-        val MISE_EXECUTABLE_CHANGED = Topic(
-            "Mise Executable Changed",
-            Runnable::class.java,
-            Topic.BroadcastDirection.NONE
-        )
     }
 
     fun matchesMiseExecutablePath(commandLine: GeneralCommandLine): Boolean {
@@ -435,4 +456,6 @@ class MiseExecutableManager(
         return null
     }
 
+    override fun dispose() {
+    }
 }

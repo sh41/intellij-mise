@@ -1,5 +1,7 @@
 package com.github.l34130.mise.core
 
+import com.github.l34130.mise.core.cache.MiseProjectEvent
+import com.github.l34130.mise.core.cache.MiseProjectEventListener
 import com.github.l34130.mise.core.model.MiseTomlFile
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
@@ -15,7 +17,6 @@ import com.intellij.psi.PsiManager
 import com.intellij.psi.PsiTreeAnyChangeAbstractAdapter
 import com.intellij.util.Alarm
 import com.intellij.util.messages.MessageBusConnection
-import com.intellij.util.messages.Topic
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -25,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 @Service(Service.Level.PROJECT)
 class MiseTomlFileListener(
-    private val project: Project,
+    project: Project,
 ) : Disposable {
     init {
         // Register the VFS listener once for the entire project
@@ -36,16 +37,6 @@ class MiseTomlFileListener(
     override fun dispose() {
         // The MessageBusConnection created with connect(this) is automatically
         // disposed when this service is disposed, cleaning up all subscriptions
-    }
-
-    companion object {
-        /**
-         * Topic for broadcasting MISE TOML file changes.
-         * Services can subscribe to this topic to be notified of changes.
-         * The topic uses Function0 (a function with no parameters) to maintain
-         * consistency with the existing codebase.
-         */
-        val MISE_TOML_CHANGED = Topic.create("MISE_TOML_CHANGED", Function0::class.java)
     }
 
     private class FileListener(
@@ -98,7 +89,10 @@ class MiseTomlFileListener(
                 Runnable {
                     if (project.isDisposed) return@Runnable
                     val scope = HashSet(dirtyTomlFiles)
-                    project.messageBus.syncPublisher(MiseTomlFileListener.MISE_TOML_CHANGED).invoke()
+                    MiseProjectEventListener.broadcast(
+                        project,
+                        MiseProjectEvent(MiseProjectEvent.Kind.TOML_CHANGED, "mise toml changed")
+                    )
                     dirtyTomlFiles.removeAll(scope)
                 }
 

@@ -1,5 +1,7 @@
 package com.github.l34130.mise.core
 
+import com.github.l34130.mise.core.cache.MiseProjectEvent
+import com.github.l34130.mise.core.cache.MiseProjectEventListener
 import com.github.l34130.mise.core.model.MiseShellScriptTask
 import com.github.l34130.mise.core.model.MiseTask
 import com.github.l34130.mise.core.model.MiseTomlFile
@@ -37,8 +39,10 @@ class MiseTaskResolver(
         project.service<MiseTomlFileListener>()
 
         // Subscribe to cache invalidation events
-        project.messageBus.connect(this).subscribe(MiseTomlFileListener.MISE_TOML_CHANGED) {
-            cache.clear()
+        MiseProjectEventListener.subscribe(project, this) { event ->
+            if (event.kind == MiseProjectEvent.Kind.TOML_CHANGED) {
+                invalidateCache()
+            }
         }
     }
 

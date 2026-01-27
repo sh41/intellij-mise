@@ -1,5 +1,7 @@
 package com.github.l34130.mise.core.setting
 
+import com.github.l34130.mise.core.cache.MiseProjectEvent
+import com.github.l34130.mise.core.cache.MiseProjectEventListener
 import com.github.l34130.mise.core.command.MiseExecutableManager
 import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.components.service
@@ -234,7 +236,10 @@ class MiseConfigurable(
             projectSettings.state.useMiseInAllCommandLines = myMiseAllCommandLinesCb.isSelected
 
             // Notify listeners that settings have changed
-            project.messageBus.syncPublisher(MiseSettingsListener.TOPIC).settingsChanged()
+            MiseProjectEventListener.broadcast(
+                project,
+                MiseProjectEvent(MiseProjectEvent.Kind.SETTINGS_CHANGED, "settings applied")
+            )
         }
     }
 
