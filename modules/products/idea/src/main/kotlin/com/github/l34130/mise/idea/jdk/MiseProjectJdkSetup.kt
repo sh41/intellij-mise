@@ -28,7 +28,6 @@ class MiseProjectJdkSetup : AbstractProjectSdkSetup() {
         if (currentSdk == null) {
             return SdkStatus.NeedsUpdate(
                 currentSdkVersion = null,
-                requestedInstallPath = newSdk.homePath ?: tool.resolvedInstallPath,
             )
         }
 
@@ -52,7 +51,6 @@ class MiseProjectJdkSetup : AbstractProjectSdkSetup() {
 
         return SdkStatus.NeedsUpdate(
             currentSdkVersion = displayVersion,
-            requestedInstallPath = newSdk.homePath ?: tool.resolvedInstallPath,
         )
     }
 
@@ -70,34 +68,48 @@ class MiseProjectJdkSetup : AbstractProjectSdkSetup() {
     override fun applySdkConfiguration(
         tool: MiseDevTool,
         project: Project,
-    ): ApplySdkResult =
-        WriteAction.computeAndWait<ApplySdkResult, Throwable> {
+    ) {
+        WriteAction.computeAndWait<Unit, Throwable> {
             val projectJdkTable = ProjectJdkTable.getInstance()
 
             val sdk =
                 tool.asJavaSdk().also { sdk ->
-                    val oldJdk = projectJdkTable.findJdk(tool.jdkName())
-                    if (oldJdk != null) {
-                        projectJdkTable.updateJdk(oldJdk, sdk)
-                    } else {
-                        projectJdkTable.addJdk(sdk)
-                    }
+                    upsertJdk(projectJdkTable, sdk)
                 }
 
             ProjectRootManager.getInstance(project).projectSdk = sdk
-            ApplySdkResult(
-                sdkName = sdk.name,
-                sdkVersion = sdk.versionString ?: tool.resolvedVersion,
-                sdkPath = sdk.homePath ?: tool.resolvedInstallPath,
-            )
         }
+    }
+
+    private fun upsertJdk(
+        projectJdkTable: ProjectJdkTable,
+        sdk: Sdk,
+    ) {
+        val existing = projectJdkTable.findJdk(sdk.name)
+        if (existing != null) {
+            projectJdkTable.updateJdk(existing, sdk)
+            return
+        }
+
+        try {
+            projectJdkTable.addJdk(sdk)
+        } catch (e: RuntimeException) {
+            // Workspace model can throw if another update added the same symbolic ID.
+            val retry = projectJdkTable.findJdk(sdk.name)
+            if (retry != null) {
+                projectJdkTable.updateJdk(retry, sdk)
+            } else {
+                throw e
+            }
+        }
+    }
 
     private fun isSamePath(path1: String?, path2: String?): Boolean {
         if (path1 == null || path2 == null) return false
         return FileUtil.filesEqual(File(path1), File(path2))
     }
 
-    override fun <T : Configurable> getConfigurableClass(): KClass<out T>? = null
+    override fun <T : Configurable> getSettingsConfigurableClass(): KClass<out T>? = null
 
     private fun MiseDevTool.asJavaSdk(): Sdk {
         return JavaSdk.getInstance().createJdk(this.jdkName(), resolvedInstallPath, false)

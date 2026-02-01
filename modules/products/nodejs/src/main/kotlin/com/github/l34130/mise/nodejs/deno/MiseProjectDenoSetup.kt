@@ -33,7 +33,6 @@ class MiseProjectDenoSetup : AbstractProjectSdkSetup() {
         } else {
             SdkStatus.NeedsUpdate(
                 currentSdkVersion = null,
-                requestedInstallPath = newDenoPath,
             )
         }
     }
@@ -41,22 +40,18 @@ class MiseProjectDenoSetup : AbstractProjectSdkSetup() {
     override fun applySdkConfiguration(
         tool: MiseDevTool,
         project: Project,
-    ): ApplySdkResult {
+    ) {
         val settings = DenoSettings.getService(project)
         val newDenoPath = tool.asDenoPath()
 
-        return WriteAction.computeAndWait<ApplySdkResult, Throwable> {
+        WriteAction.computeAndWait<Unit, Throwable> {
             settings.setDenoPath(newDenoPath)
-            ApplySdkResult(
-                sdkName = "deno",
-                sdkVersion = tool.resolvedVersion,
-                sdkPath = newDenoPath,
-            )
         }
     }
 
     @Suppress("UNCHECKED_CAST")
-    override fun <T : Configurable> getConfigurableClass(): KClass<out T> = DenoConfigurable::class as KClass<out T>
+    override fun <T : Configurable> getSettingsConfigurableClass(): KClass<out T> =
+        DenoConfigurable::class as KClass<out T>
 
     private fun MiseDevTool.asDenoPath(): String {
         return ShimUtils.findExecutable(resolvedInstallPath, "deno").path

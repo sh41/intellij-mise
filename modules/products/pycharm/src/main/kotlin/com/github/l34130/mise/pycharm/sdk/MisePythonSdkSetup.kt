@@ -22,7 +22,7 @@ import kotlin.reflect.KClass
 class MisePythonSdkSetup : AbstractProjectSdkSetup() {
     override fun getDevToolName(project: Project): MiseDevToolName = MiseDevToolName("python")
 
-    override fun shouldAutoConfigure(project: Project): Boolean = false
+    override fun defaultAutoConfigure(project: Project): Boolean = false
 
     override fun checkSdkStatus(
         tool: MiseDevTool,
@@ -39,7 +39,6 @@ class MisePythonSdkSetup : AbstractProjectSdkSetup() {
         if (currentSdk == null || !currentSdk.homePath.equals(newSdk.homePath)) {
             return SdkStatus.NeedsUpdate(
                 currentSdkVersion = currentSdk?.versionString,
-                requestedInstallPath = newSdk.homePath ?: tool.resolvedInstallPath,
             )
         }
 
@@ -49,20 +48,15 @@ class MisePythonSdkSetup : AbstractProjectSdkSetup() {
     override fun applySdkConfiguration(
         tool: MiseDevTool,
         project: Project,
-    ): ApplySdkResult {
+    ) {
         val newSdk = tool.asUvSdk(project)
 
-        return WriteAction.computeAndWait<ApplySdkResult, Throwable> {
+        WriteAction.computeAndWait<Unit, Throwable> {
             ProjectRootManager.getInstance(project).projectSdk = newSdk
-            ApplySdkResult(
-                sdkName = newSdk.name,
-                sdkVersion = newSdk.versionString ?: tool.resolvedVersion,
-                sdkPath = newSdk.homePath ?: tool.resolvedInstallPath,
-            )
         }
     }
 
-    override fun <T : Configurable> getConfigurableClass(): KClass<out T>? = null
+    override fun <T : Configurable> getSettingsConfigurableClass(): KClass<out T>? = null
 
     private fun checkUvEnabled(project: Project) {
         val configEnvironment = project.service<MiseProjectSettings>().state.miseConfigEnvironment

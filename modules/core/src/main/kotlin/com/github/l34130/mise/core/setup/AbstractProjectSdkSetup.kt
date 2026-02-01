@@ -23,17 +23,17 @@ abstract class AbstractProjectSdkSetup :
 
     open fun getSettingsDisplayName(project: Project): String = getDevToolName(project).canonicalName()
 
-    open fun shouldAutoConfigure(project: Project): Boolean = true
+    open fun defaultAutoConfigure(project: Project): Boolean = true
 
-    open fun shouldAutoInstall(project: Project): Boolean = false
+    open fun defaultAutoInstall(project: Project): Boolean = false
 
     fun isAutoConfigureEnabled(project: Project): Boolean {
         val settings = project.service<MiseProjectSettings>()
         val effective =
             settings.effectiveSdkSetupOption(
                 id = getSettingsId(project),
-                defaultAutoInstall = shouldAutoInstall(project),
-                defaultAutoConfigure = shouldAutoConfigure(project),
+                defaultAutoInstall = defaultAutoInstall(project),
+                defaultAutoConfigure = defaultAutoConfigure(project),
             )
         return effective.autoConfigure
     }
@@ -43,8 +43,8 @@ abstract class AbstractProjectSdkSetup :
         val effective =
             settings.effectiveSdkSetupOption(
                 id = getSettingsId(project),
-                defaultAutoInstall = shouldAutoInstall(project),
-                defaultAutoConfigure = shouldAutoConfigure(project),
+                defaultAutoInstall = defaultAutoInstall(project),
+                defaultAutoConfigure = defaultAutoConfigure(project),
             )
         return effective.autoInstall
     }
@@ -57,9 +57,9 @@ abstract class AbstractProjectSdkSetup :
     protected abstract fun applySdkConfiguration(
         tool: MiseDevTool,
         project: Project,
-    ): ApplySdkResult
+    )
 
-    abstract fun <T : Configurable> getConfigurableClass(): KClass<out T>?
+    open fun <T : Configurable> getSettingsConfigurableClass(): KClass<out T>? = null
 
     fun configureSdk(
         project: Project,
@@ -77,24 +77,17 @@ abstract class AbstractProjectSdkSetup :
     internal fun applySdkConfigurationInternal(
         tool: MiseDevTool,
         project: Project,
-    ): ApplySdkResult = applySdkConfiguration(tool, project)
+    ) = applySdkConfiguration(tool, project)
 
-    internal fun configurableClass(): KClass<out Configurable>? = getConfigurableClass<Configurable>()
+    internal fun configurableClass(): KClass<out Configurable>? = getSettingsConfigurableClass<Configurable>()
 
     sealed interface SdkStatus {
         data class NeedsUpdate(
             val currentSdkVersion: String?,
-            val requestedInstallPath: String,
         ) : SdkStatus
 
         object UpToDate : SdkStatus
     }
-
-    data class ApplySdkResult(
-        val sdkName: String,
-        val sdkVersion: String,
-        val sdkPath: String,
-    )
 
     companion object {
         val EP_NAME = ExtensionPointName.create<AbstractProjectSdkSetup>("com.github.l34130.mise.projectSdkSetup")

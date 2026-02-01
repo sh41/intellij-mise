@@ -10,11 +10,26 @@ plugin does not ship out of the box.
 
 ### Registration (plugin.xml)
 
-Your plugin must depend on the Mise plugin and register a provider:
+Your plugin must declare a dependency on the Mise plugin to register a provider.
+This can be either a required or optional dependency.
 
 ```xml
 <depends>com.github.l34130.mise</depends>
 
+<extensions defaultExtensionNs="com.github.l34130.mise">
+  <projectSdkSetup implementation="com.example.mise.MyLanguageSdkSetup"/>
+</extensions>
+```
+
+If your plugin should work without Mise installed, register the extension
+behind an optional dependency:
+
+```xml
+<depends optional="true" config-file="mise-extensions.xml">com.github.l34130.mise</depends>
+```
+
+```xml
+<!-- mise-extensions.xml -->
 <extensions defaultExtensionNs="com.github.l34130.mise">
   <projectSdkSetup implementation="com.example.mise.MyLanguageSdkSetup"/>
 </extensions>
@@ -35,7 +50,7 @@ class handles the common workflow:
 
 Defaults and settings integration:
 
-- `shouldAutoInstall` and `shouldAutoConfigure` define the per-SDK defaults.
+- `defaultAutoInstall` and `defaultAutoConfigure` define the per-SDK defaults.
 - Users can override these per SDK in "Mise Settings → SDK Setup".
 - `getSettingsId` is the stable ID for storing user choices.
 - `getSettingsDisplayName` is the label shown in the settings UI.
@@ -54,26 +69,21 @@ class MyLanguageSdkSetup : AbstractProjectSdkSetup() {
 
     override fun checkSdkStatus(tool: MiseDevTool, project: Project): SdkStatus {
         // Compare current SDK to tool.resolvedInstallPath / tool.resolvedVersion.
-        return SdkStatus.NeedsUpdate(currentSdkVersion = null, requestedInstallPath = tool.resolvedInstallPath)
+        return SdkStatus.NeedsUpdate(currentSdkVersion = null)
     }
 
-    override fun applySdkConfiguration(tool: MiseDevTool, project: Project): ApplySdkResult {
+    override fun applySdkConfiguration(tool: MiseDevTool, project: Project) {
         // Apply the SDK in your product API.
-        return ApplySdkResult(
-            sdkName = "mytool ${tool.resolvedVersion}",
-            sdkVersion = tool.resolvedVersion,
-            sdkPath = tool.resolvedInstallPath,
-        )
     }
 
-    override fun <T : Configurable> getConfigurableClass(): KClass<out T>? = null
+    override fun <T : Configurable> getSettingsConfigurableClass(): KClass<out T>? = null
 }
 ```
 
-You can override `shouldAutoConfigure` to return false when a language SDK
+You can override `defaultAutoConfigure` to return false when a language SDK
 should only be updated via the manual action.
 
-Use `shouldAutoInstall` when a tool should be automatically installed by
+Use `defaultAutoInstall` when a tool should be automatically installed by
 default.
 
 ### Reference implementations

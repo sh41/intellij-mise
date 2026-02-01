@@ -35,7 +35,6 @@ class MiseProjectPackageSetup : AbstractProjectSdkSetup() {
         if (currentPackageManager == null) {
             return SdkStatus.NeedsUpdate(
                 currentSdkVersion = null,
-                requestedInstallPath = newPackageManager.presentablePath,
             )
         }
 
@@ -45,7 +44,6 @@ class MiseProjectPackageSetup : AbstractProjectSdkSetup() {
         ) {
             return SdkStatus.NeedsUpdate(
                 currentSdkVersion = currentPackageManager.version?.parsedVersion,
-                requestedInstallPath = newPackageManager.presentablePath,
             )
         }
 
@@ -55,22 +53,17 @@ class MiseProjectPackageSetup : AbstractProjectSdkSetup() {
     override fun applySdkConfiguration(
         tool: MiseDevTool,
         project: Project,
-    ): ApplySdkResult {
+    ) {
         val packageManager = NpmManager.getInstance(project)
         val newPackage = tool.asPackage(project)
 
-        return WriteAction.computeAndWait<ApplySdkResult, Throwable> {
+        WriteAction.computeAndWait<Unit, Throwable> {
             packageManager.packageRef = NodePackageRef.create(newPackage)
-            ApplySdkResult(
-                sdkName = newPackage.name,
-                sdkVersion = newPackage.version?.parsedVersion ?: tool.resolvedVersion,
-                sdkPath = newPackage.presentablePath,
-            )
         }
     }
 
     @Suppress("UNCHECKED_CAST")
-    override fun <T : Configurable> getConfigurableClass(): KClass<out T>? = NodeSettingsConfigurable::class as KClass<out T>
+    override fun <T : Configurable> getSettingsConfigurableClass(): KClass<out T> = NodeSettingsConfigurable::class as KClass<out T>
 
     private fun inspectPackageManager(project: Project): String {
         val basePath =

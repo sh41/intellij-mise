@@ -19,8 +19,8 @@ internal class SdkSetupSettingsUpdater {
         val effective =
             settings.effectiveSdkSetupOption(
                 id = id,
-                defaultAutoInstall = provider.shouldAutoInstall(project),
-                defaultAutoConfigure = provider.shouldAutoConfigure(project),
+                defaultAutoInstall = provider.defaultAutoInstall(project),
+                defaultAutoConfigure = provider.defaultAutoConfigure(project),
             )
 
         settings.upsertSdkSetupOption(

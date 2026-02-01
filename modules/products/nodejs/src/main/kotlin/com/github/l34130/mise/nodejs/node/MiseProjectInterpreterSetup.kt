@@ -35,7 +35,6 @@ class MiseProjectInterpreterSetup : AbstractProjectSdkSetup() {
         if (currentInterpreter == null || !currentInterpreter.deepEquals(newInterpreter)) {
             return SdkStatus.NeedsUpdate(
                 currentSdkVersion = currentInterpreter?.cachedVersion?.get()?.parsedVersion,
-                requestedInstallPath = newInterpreter.interpreterSystemDependentPath,
             )
         }
 
@@ -45,22 +44,17 @@ class MiseProjectInterpreterSetup : AbstractProjectSdkSetup() {
     override fun applySdkConfiguration(
         tool: MiseDevTool,
         project: Project,
-    ): ApplySdkResult {
+    ) {
         val nodeJsInterpreterManager = NodeJsInterpreterManager.getInstance(project)
         val newInterpreter = tool.asNodeJsLocalInterpreter()
 
-        return WriteAction.computeAndWait<ApplySdkResult, Throwable> {
+        WriteAction.computeAndWait<Unit, Throwable> {
             nodeJsInterpreterManager.setInterpreterRef(newInterpreter.toRef())
-            ApplySdkResult(
-                sdkName = newInterpreter.presentableName,
-                sdkVersion = newInterpreter.cachedVersion?.get()?.parsedVersion ?: tool.resolvedVersion,
-                sdkPath = newInterpreter.interpreterSystemDependentPath,
-            )
         }
     }
 
     @Suppress("UNCHECKED_CAST")
-    override fun <T : Configurable> getConfigurableClass(): KClass<out T> = NodeSettingsConfigurable::class as KClass<out T>
+    override fun <T : Configurable> getSettingsConfigurableClass(): KClass<out T> = NodeSettingsConfigurable::class as KClass<out T>
 
     private fun MiseDevTool.asNodeJsLocalInterpreter(): NodeJsLocalInterpreter {
         val basePath = resolvedInstallPath

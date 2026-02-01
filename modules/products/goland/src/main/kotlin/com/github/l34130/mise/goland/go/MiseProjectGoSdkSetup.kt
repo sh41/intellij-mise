@@ -34,7 +34,6 @@ class MiseProjectGoSdkSetup : AbstractProjectSdkSetup() {
         if (currentSdk == GoSdk.NULL) {
             return SdkStatus.NeedsUpdate(
                 currentSdkVersion = null,
-                requestedInstallPath = VfsUtil.urlToPath(newSdk.homeUrl),
             )
         }
 
@@ -50,32 +49,27 @@ class MiseProjectGoSdkSetup : AbstractProjectSdkSetup() {
 
         return SdkStatus.NeedsUpdate(
             currentSdkVersion = currentSdk.version ?: currentSdk.majorVersion.name,
-            requestedInstallPath = VfsUtil.urlToPath(newSdk.homeUrl),
         )
     }
 
     override fun applySdkConfiguration(
         tool: MiseDevTool,
         project: Project,
-    ): ApplySdkResult {
+    ) {
         val sdkService = GoSdkService.getInstance(project)
 
-        return WriteAction.computeAndWait<ApplySdkResult, Throwable> {
+        WriteAction.computeAndWait<Unit, Throwable> {
             val sdk = tool.asGoSdk()
             if (sdk == GoSdk.NULL) {
                 throw IllegalStateException("Failed to create Go SDK from path: ${tool.resolvedInstallPath}")
             }
             sdkService.setSdk(sdk, true)
-            ApplySdkResult(
-                sdkName = sdk.name,
-                sdkVersion = sdk.version ?: tool.resolvedVersion,
-                sdkPath = sdk.homeUrl,
-            )
         }
     }
 
     @Suppress("UNCHECKED_CAST")
-    override fun <T : Configurable> getConfigurableClass(): KClass<out T> = GoSdkConfigurable::class as KClass<out T>
+    override fun <T : Configurable> getSettingsConfigurableClass(): KClass<out T> =
+        GoSdkConfigurable::class as KClass<out T>
 
     private fun MiseDevTool.asGoSdk(): GoSdk {
         val basePath = resolvedInstallPath

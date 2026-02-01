@@ -210,8 +210,8 @@ class MiseConfigurable(
                             sdkSetupProviders.forEach { entry ->
                                 val provider = entry.provider
                                 val id = provider.getSettingsId(project)
-                                val defaultAutoInstall = provider.shouldAutoInstall(project)
-                                val defaultAutoConfigure = provider.shouldAutoConfigure(project)
+                                val defaultAutoInstall = provider.defaultAutoInstall(project)
+                                val defaultAutoConfigure = provider.defaultAutoConfigure(project)
                                 val effectiveOption =
                                     projectSettings.effectiveSdkSetupOption(
                                         id = id,

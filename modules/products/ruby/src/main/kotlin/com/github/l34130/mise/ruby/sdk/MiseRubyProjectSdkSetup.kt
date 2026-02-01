@@ -18,7 +18,7 @@ import kotlin.reflect.KClass
 class MiseRubyProjectSdkSetup : AbstractProjectSdkSetup() {
     override fun getDevToolName(project: Project): MiseDevToolName = MiseDevToolName("ruby")
 
-    override fun shouldAutoConfigure(project: Project): Boolean = false
+    override fun defaultAutoConfigure(project: Project): Boolean = false
 
     override fun checkSdkStatus(
         tool: MiseDevTool,
@@ -33,7 +33,6 @@ class MiseRubyProjectSdkSetup : AbstractProjectSdkSetup() {
         if (currentSdk == null || currentSdk.name != newSdk.name && currentSdk.homePath != newSdk.homePath) {
             return SdkStatus.NeedsUpdate(
                 currentSdkVersion = currentSdk?.versionString,
-                requestedInstallPath = newSdk.homePath ?: tool.resolvedInstallPath,
             )
         }
 
@@ -43,8 +42,8 @@ class MiseRubyProjectSdkSetup : AbstractProjectSdkSetup() {
     override fun applySdkConfiguration(
         tool: MiseDevTool,
         project: Project,
-    ): ApplySdkResult =
-        WriteAction.computeAndWait<ApplySdkResult, Throwable> {
+    ) {
+        WriteAction.computeAndWait<Unit, Throwable> {
             val sdk =
                 tool.asRubySdk().also { sdk ->
                     val exists = RubySdkType.getAllValidRubySdks().firstOrNull { it.name == sdk.name }
@@ -56,16 +55,12 @@ class MiseRubyProjectSdkSetup : AbstractProjectSdkSetup() {
                 }
 
             ProjectRootManager.getInstance(project).projectSdk = sdk
-            ApplySdkResult(
-                sdkName = sdk.name,
-                sdkVersion = sdk.versionString ?: tool.resolvedVersion,
-                sdkPath = sdk.homePath ?: tool.resolvedInstallPath,
-            )
         }
+    }
 
     // Application configurable
     // RubyDefaultProjectSdkGemsConfigurable::class as KClass<out T>
-    override fun <T : Configurable> getConfigurableClass(): KClass<out T>? = null
+    override fun <T : Configurable> getSettingsConfigurableClass(): KClass<out T>? = null
 
     private fun MiseDevTool.asRubySdk(): Sdk {
         val sdkPath = resolvedInstallPath
