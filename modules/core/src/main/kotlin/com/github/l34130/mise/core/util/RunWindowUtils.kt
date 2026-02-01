@@ -23,6 +23,7 @@ object RunWindowUtils {
         args: List<String>,
         tabName: String,
         onSuccess: (() -> Unit)? = null,
+        onFinish: (() -> Unit)? = null,
     ) {
         val title = "Failed to run $tabName"
 
@@ -34,13 +35,15 @@ object RunWindowUtils {
                     ProcessTerminatedListener.attach(this)
                 }
 
-                if (onSuccess != null) {
+                if (onSuccess != null || onFinish != null) {
                     processHandler.addProcessListener(
                         object : ProcessAdapter() {
                             override fun processTerminated(event: ProcessEvent) {
                                 if (event.exitCode == 0) {
-                                    onSuccess()
+                                    onSuccess?.invoke()
                                 }
+                                // Always notify the caller so they can clear in-flight guards.
+                                onFinish?.invoke()
                             }
                         },
                     )
@@ -48,13 +51,14 @@ object RunWindowUtils {
 
                 RunContentExecutor(project, processHandler)
                     .withTitle(tabName)
-                    .withRerun { executeMiseCommand(project, args, tabName, onSuccess) }
+                    .withRerun { executeMiseCommand(project, args, tabName, onSuccess, onFinish) }
                     .withStop(
                         { processHandler.destroyProcess() },
                         { !processHandler.isProcessTerminated && !processHandler.isProcessTerminating },
                     )
                     .run()
             } catch (e: ExecutionException) {
+                onFinish?.invoke()
                 MiseNotificationServiceUtils.notifyException(title, e, project)
             }
         }
@@ -85,6 +89,8 @@ object RunWindowUtils {
 
         val commandLine = GeneralCommandLine(commandLineArgs)
             .withWorkDirectory(project.guessMiseProjectPath())
+            // mise writes progress/log output to stderr; merge streams to avoid a red console.
+            .withRedirectErrorStream(true)
 
         MiseCommandLineHelper.environmentSkipCustomization(commandLine.environment)
         return commandLine

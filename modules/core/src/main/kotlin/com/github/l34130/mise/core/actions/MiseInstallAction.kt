@@ -18,7 +18,7 @@ class MiseInstallAction : DumbAwareAction(
         val project = e.project ?: return
         RunWindowUtils.executeMiseCommand(
             project = project,
-            args = listOf("install"),
+            args = listOf("install", "--raw", "--yes"),
             tabName = "Mise install",
             onSuccess = {
                 project.service<MiseCacheService>().invalidateAllCommands()
