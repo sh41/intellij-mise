@@ -3,7 +3,6 @@ package com.github.l34130.mise.ruby.sdk
 import com.github.l34130.mise.core.command.MiseDevTool
 import com.github.l34130.mise.core.command.MiseDevToolName
 import com.github.l34130.mise.core.setup.AbstractProjectSdkSetup
-import com.github.l34130.mise.core.wsl.WslPathUtils
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.diagnostic.logger
@@ -19,6 +18,8 @@ import kotlin.reflect.KClass
 class MiseRubyProjectSdkSetup : AbstractProjectSdkSetup() {
     override fun getDevToolName(project: Project): MiseDevToolName = MiseDevToolName("ruby")
 
+    override fun shouldAutoConfigure(project: Project): Boolean = false
+
     override fun checkSdkStatus(
         tool: MiseDevTool,
         project: Project,
@@ -32,7 +33,7 @@ class MiseRubyProjectSdkSetup : AbstractProjectSdkSetup() {
         if (currentSdk == null || currentSdk.name != newSdk.name && currentSdk.homePath != newSdk.homePath) {
             return SdkStatus.NeedsUpdate(
                 currentSdkVersion = currentSdk?.versionString,
-                requestedInstallPath = newSdk.homePath ?: tool.shimsInstallPath(),
+                requestedInstallPath = newSdk.homePath ?: tool.resolvedInstallPath,
             )
         }
 
@@ -57,8 +58,8 @@ class MiseRubyProjectSdkSetup : AbstractProjectSdkSetup() {
             ProjectRootManager.getInstance(project).projectSdk = sdk
             ApplySdkResult(
                 sdkName = sdk.name,
-                sdkVersion = sdk.versionString ?: tool.shimsVersion(),
-                sdkPath = sdk.homePath ?: tool.shimsInstallPath(),
+                sdkVersion = sdk.versionString ?: tool.resolvedVersion,
+                sdkPath = sdk.homePath ?: tool.resolvedInstallPath,
             )
         }
 
@@ -67,12 +68,12 @@ class MiseRubyProjectSdkSetup : AbstractProjectSdkSetup() {
     override fun <T : Configurable> getConfigurableClass(): KClass<out T>? = null
 
     private fun MiseDevTool.asRubySdk(): Sdk {
-        val sdkPath = WslPathUtils.convertToolPathForWsl(this)
+        val sdkPath = resolvedInstallPath
         return ProjectJdkImpl(
-            "mise: ${this.shimsVersion()}",
+            "mise: ${this.resolvedVersion}",
             RubySdkType.getInstance(),
             sdkPath,
-            this.shimsVersion(),
+            this.resolvedVersion,
         )
     }
 

@@ -1,5 +1,7 @@
 package com.github.l34130.mise.core.command
 
+import com.github.l34130.mise.core.wsl.WslPathUtils
+
 data class MiseDevTool(
     val version: String,
     val requestedVersion: String? = null,
@@ -9,6 +11,12 @@ data class MiseDevTool(
     val source: MiseSource? = null,
 ) {
     fun shimsVersion(): String = requestedVersion ?: version
+
+    val resolvedVersion: String
+        get() = version.ifBlank { shimsVersion() }
+
+    val resolvedInstallPath: String
+        get() = WslPathUtils.convertUnixPathForWsl(installPath)
 
     fun shimsInstallPath(): String =
         if (requestedVersion == null) {

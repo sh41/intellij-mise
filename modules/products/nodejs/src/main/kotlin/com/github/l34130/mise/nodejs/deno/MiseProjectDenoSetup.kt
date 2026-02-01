@@ -4,7 +4,6 @@ import com.github.l34130.mise.core.ShimUtils
 import com.github.l34130.mise.core.command.MiseDevTool
 import com.github.l34130.mise.core.command.MiseDevToolName
 import com.github.l34130.mise.core.setup.AbstractProjectSdkSetup
-import com.github.l34130.mise.core.wsl.WslPathUtils
 import com.intellij.deno.DenoConfigurable
 import com.intellij.deno.DenoSettings
 import com.intellij.openapi.application.ReadAction
@@ -50,7 +49,7 @@ class MiseProjectDenoSetup : AbstractProjectSdkSetup() {
             settings.setDenoPath(newDenoPath)
             ApplySdkResult(
                 sdkName = "deno",
-                sdkVersion = tool.shimsVersion(),
+                sdkVersion = tool.resolvedVersion,
                 sdkPath = newDenoPath,
             )
         }
@@ -60,8 +59,7 @@ class MiseProjectDenoSetup : AbstractProjectSdkSetup() {
     override fun <T : Configurable> getConfigurableClass(): KClass<out T> = DenoConfigurable::class as KClass<out T>
 
     private fun MiseDevTool.asDenoPath(): String {
-        val basePath = WslPathUtils.convertToolPathForWsl(this)
-        return ShimUtils.findExecutable(basePath, "deno").path
+        return ShimUtils.findExecutable(resolvedInstallPath, "deno").path
     }
 
     companion object {

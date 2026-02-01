@@ -3,7 +3,6 @@ package com.github.l34130.mise.nodejs.node
 import com.github.l34130.mise.core.command.MiseDevTool
 import com.github.l34130.mise.core.command.MiseDevToolName
 import com.github.l34130.mise.core.setup.AbstractProjectSdkSetup
-import com.github.l34130.mise.core.wsl.WslPathUtils
 import com.intellij.javascript.nodejs.interpreter.NodeJsInterpreter
 import com.intellij.javascript.nodejs.interpreter.NodeJsInterpreterManager
 import com.intellij.javascript.nodejs.interpreter.local.NodeJsLocalInterpreter
@@ -54,7 +53,7 @@ class MiseProjectInterpreterSetup : AbstractProjectSdkSetup() {
             nodeJsInterpreterManager.setInterpreterRef(newInterpreter.toRef())
             ApplySdkResult(
                 sdkName = newInterpreter.presentableName,
-                sdkVersion = newInterpreter.cachedVersion?.get()?.parsedVersion ?: tool.shimsVersion(),
+                sdkVersion = newInterpreter.cachedVersion?.get()?.parsedVersion ?: tool.resolvedVersion,
                 sdkPath = newInterpreter.interpreterSystemDependentPath,
             )
         }
@@ -64,7 +63,7 @@ class MiseProjectInterpreterSetup : AbstractProjectSdkSetup() {
     override fun <T : Configurable> getConfigurableClass(): KClass<out T> = NodeSettingsConfigurable::class as KClass<out T>
 
     private fun MiseDevTool.asNodeJsLocalInterpreter(): NodeJsLocalInterpreter {
-        val basePath = WslPathUtils.convertToolPathForWsl(this)
+        val basePath = resolvedInstallPath
 
         val interpreterPath =
             if (SystemInfo.isWindows) {

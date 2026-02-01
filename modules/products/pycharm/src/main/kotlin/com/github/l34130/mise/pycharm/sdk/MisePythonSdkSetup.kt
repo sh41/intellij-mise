@@ -22,6 +22,8 @@ import kotlin.reflect.KClass
 class MisePythonSdkSetup : AbstractProjectSdkSetup() {
     override fun getDevToolName(project: Project): MiseDevToolName = MiseDevToolName("python")
 
+    override fun shouldAutoConfigure(project: Project): Boolean = false
+
     override fun checkSdkStatus(
         tool: MiseDevTool,
         project: Project,
@@ -37,7 +39,7 @@ class MisePythonSdkSetup : AbstractProjectSdkSetup() {
         if (currentSdk == null || !currentSdk.homePath.equals(newSdk.homePath)) {
             return SdkStatus.NeedsUpdate(
                 currentSdkVersion = currentSdk?.versionString,
-                requestedInstallPath = newSdk.homePath ?: tool.shimsInstallPath(),
+                requestedInstallPath = newSdk.homePath ?: tool.resolvedInstallPath,
             )
         }
 
@@ -54,8 +56,8 @@ class MisePythonSdkSetup : AbstractProjectSdkSetup() {
             ProjectRootManager.getInstance(project).projectSdk = newSdk
             ApplySdkResult(
                 sdkName = newSdk.name,
-                sdkVersion = newSdk.versionString ?: tool.shimsVersion(),
-                sdkPath = newSdk.homePath ?: tool.shimsInstallPath(),
+                sdkVersion = newSdk.versionString ?: tool.resolvedVersion,
+                sdkPath = newSdk.homePath ?: tool.resolvedInstallPath,
             )
         }
     }
