@@ -26,10 +26,19 @@ Implement `com.github.l34130.mise.core.setup.AbstractProjectSdkSetup`. The base
 class handles the common workflow:
 
 - Finds the matching tool from `mise ls --local --json`.
-- Warns if the tool is not installed or misconfigured.
-- Shows a "Sync to ..." notification on mismatch.
+- Prompts for installation when the tool is missing (and can auto-install if
+  enabled). Installs run `mise install --raw --yes <tool>` in a Run tool window.
+- Prompts to configure when the IDE SDK is out of sync, with "Configure now"
+  and "Always keep <SDK> in sync" actions.
 - Calls your `checkSdkStatus` and `applySdkConfiguration` hooks on a background
-  thread.
+  thread (use ReadAction/WriteAction when touching IDE state).
+
+Defaults and settings integration:
+
+- `shouldAutoInstall` and `shouldAutoConfigure` define the per-SDK defaults.
+- Users can override these per SDK in "Mise Settings → SDK Setup".
+- `getSettingsId` is the stable ID for storing user choices.
+- `getSettingsDisplayName` is the label shown in the settings UI.
 
 Key things to use from `MiseDevTool`:
 
@@ -64,6 +73,9 @@ class MyLanguageSdkSetup : AbstractProjectSdkSetup() {
 You can override `shouldAutoConfigure` to return false when a language SDK
 should only be updated via the manual action.
 
+Use `shouldAutoInstall` when a tool should be automatically installed by
+default.
+
 ### Reference implementations
 
 These are the in-tree providers that show typical usage:
@@ -77,4 +89,5 @@ These are the in-tree providers that show typical usage:
 
 If you want a manual "Reload SDK" action, register your class as an action in
 your plugin.xml the same way this plugin does (the class already extends
-`DumbAwareAction`).
+`DumbAwareAction`). Manual invocations run in user-interaction mode and will
+apply SDK changes immediately.
