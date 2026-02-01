@@ -1,22 +1,42 @@
 package com.github.l34130.mise.core.setup
 
+import com.github.l34130.mise.core.MiseTomlFileListener
+import com.github.l34130.mise.core.cache.MiseProjectEvent
+import com.github.l34130.mise.core.cache.MiseProjectEventListener
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
+import com.intellij.openapi.util.ZipperUpdater
+import com.intellij.util.Alarm
 
 class MiseProjectSdkSetupActivity : ProjectActivity, DumbAware {
     override suspend fun execute(project: Project) {
-        AbstractProjectSdkSetup.EP_NAME.extensionList.forEach { provider ->
-            if (!provider.shouldAutoConfigure(project)) {
-                return@forEach
-            }
-            try {
-                provider.configureSdk(project, isUserInteraction = false)
-            } catch (e: Throwable) {
-                logger.warn("Failed to auto-configure SDK for ${provider.javaClass.name}", e)
+        project.service<MiseTomlFileListener>()
+
+        // Debounce bursts of project events into a single SDK recheck.
+        val updater = ZipperUpdater(400, Alarm.ThreadToUse.POOLED_THREAD, project)
+        val recheckTask = Runnable {
+            if (!project.isDisposed) {
+                try {
+                    AbstractProjectSdkSetup.runAll(project, isUserInteraction = false)
+                } catch (e: Throwable) {
+                    logger.warn("Failed to re-check SDK configuration", e)
+                }
             }
         }
+
+        MiseProjectEventListener.subscribe(project, project) { event ->
+            when (event.kind) {
+                MiseProjectEvent.Kind.TOML_CHANGED,
+                MiseProjectEvent.Kind.SETTINGS_CHANGED,
+                MiseProjectEvent.Kind.EXECUTABLE_CHANGED -> updater.queue(recheckTask)
+                else -> Unit
+            }
+        }
+
+        recheckTask.run()
     }
 
     companion object {
