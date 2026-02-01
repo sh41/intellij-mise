@@ -1,6 +1,7 @@
 package com.github.l34130.mise.core.setup
 
 import com.github.l34130.mise.core.MiseConfigFileResolver
+import com.github.l34130.mise.core.cache.MiseCacheService
 import com.github.l34130.mise.core.command.MiseCommandLineHelper
 import com.github.l34130.mise.core.command.MiseCommandLineNotFoundException
 import com.github.l34130.mise.core.command.MiseDevTool
@@ -8,7 +9,7 @@ import com.github.l34130.mise.core.command.MiseDevToolName
 import com.github.l34130.mise.core.notification.MiseNotificationService
 import com.github.l34130.mise.core.notification.MiseNotificationServiceUtils
 import com.github.l34130.mise.core.setting.MiseProjectSettings
-import com.github.l34130.mise.core.util.TerminalUtils
+import com.github.l34130.mise.core.util.RunWindowUtils
 import com.github.l34130.mise.core.util.guessMiseProjectPath
 import com.intellij.notification.NotificationAction
 import com.intellij.openapi.actionSystem.AnActionEvent
@@ -109,10 +110,14 @@ abstract class AbstractProjectSdkSetup :
                     "Run `mise install` command to install the tool",
                 ) {
                     NotificationAction.createSimple("Run `mise install`") {
-                        TerminalUtils.executeCommand(
+                        RunWindowUtils.executeMiseCommand(
                             project = project,
-                            command = "mise install",
-                            tabName = "mise install",
+                            args = listOf("install"),
+                            tabName = "Mise install",
+                            onSuccess = {
+                                project.service<MiseCacheService>().invalidateAllCommands()
+                                runAll(project, isUserInteraction = false)
+                            },
                         )
                     }
                 }
