@@ -15,28 +15,23 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.components.service
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.options.ShowSettingsUtil
-import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.util.application
 import kotlinx.coroutines.runBlocking
 import kotlin.reflect.KClass
 
 abstract class AbstractProjectSdkSetup :
-    DumbAwareAction(),
-    ProjectActivity,
-    DumbAware {
+    DumbAwareAction() {
     final override fun actionPerformed(e: AnActionEvent) {
         e.project?.let { configureSdk(it, true) }
     }
 
-    override suspend fun execute(project: Project) {
-        configureSdk(project, false)
-    }
-
     abstract fun getDevToolName(project: Project): MiseDevToolName
+
+    open fun shouldAutoConfigure(project: Project): Boolean = true
 
     protected abstract fun checkSdkStatus(
         tool: MiseDevTool,
@@ -51,7 +46,7 @@ abstract class AbstractProjectSdkSetup :
     abstract fun <T : Configurable> getConfigurableClass(): KClass<out T>?
 
     @Suppress("ktlint:max-line-length")
-    private fun configureSdk(
+    fun configureSdk(
         project: Project,
         isUserInteraction: Boolean,
     ) {
@@ -63,7 +58,7 @@ abstract class AbstractProjectSdkSetup :
 
             // Skip automatic SDK configuration if the project doesn't have mise config files
             // or if the specific tool is not configured in mise
-            if (!isUserInteraction && !hasToolConfigured(project, configEnvironment, devToolName)) {
+            if (!isUserInteraction && (!shouldAutoConfigure(project) || !hasToolConfigured(project, configEnvironment, devToolName))) {
                 return@executeOnPooledThread
             }
             val toolsResult =
@@ -239,4 +234,14 @@ abstract class AbstractProjectSdkSetup :
         val sdkVersion: String,
         val sdkPath: String,
     )
+
+    companion object {
+        val EP_NAME = ExtensionPointName.create<AbstractProjectSdkSetup>("com.github.l34130.mise.projectSdkSetup")
+
+        fun runAll(project: Project, isUserInteraction: Boolean) {
+            EP_NAME.extensionList.forEach { provider ->
+                provider.configureSdk(project, isUserInteraction)
+            }
+        }
+    }
 }

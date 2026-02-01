@@ -2,6 +2,9 @@
     <extensions defaultExtensionNs="org.jetbrains.plugins.ruby">
         <runConfigurationExtension implementation="com.github.l34130.mise.ruby.run.MiseRubyMineRunConfigurationExtension"/>
     </extensions>
+    <extensions defaultExtensionNs="com.github.l34130.mise">
+        <projectSdkSetup implementation="com.github.l34130.mise.ruby.sdk.MiseRubyProjectSdkSetup"/>
+    </extensions>
 
     <actions>
         <action id="com.github.l34130.mise.ruby.sdk.MiseSdkRefresher"

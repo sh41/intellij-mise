@@ -59,6 +59,10 @@
 
 <!-- Plugin description end -->
 
+## Developer docs
+
+- Extension points: `docs/extension-points.md`
+
 ## Screenshots
 
 ![demo-gif](./assets/demo.gif)
