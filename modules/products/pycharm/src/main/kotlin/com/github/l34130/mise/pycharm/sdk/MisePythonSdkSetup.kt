@@ -77,6 +77,7 @@ class MisePythonSdkSetup : AbstractProjectSdkSetup() {
                 }
             return SdkStatus.NeedsUpdate(
                 currentSdkVersion = currentSdk?.versionString,
+                currentSdkLocation = SdkLocation.Module(mismatchModule.name),
             )
         }
 

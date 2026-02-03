@@ -34,6 +34,7 @@ class MiseProjectPackageSetup : AbstractProjectSdkSetup() {
         if (currentPackageManager == null) {
             return SdkStatus.NeedsUpdate(
                 currentSdkVersion = null,
+                currentSdkLocation = SdkLocation.Setting,
             )
         }
 
@@ -43,6 +44,7 @@ class MiseProjectPackageSetup : AbstractProjectSdkSetup() {
         ) {
             return SdkStatus.NeedsUpdate(
                 currentSdkVersion = currentPackageManager.version?.parsedVersion,
+                currentSdkLocation = SdkLocation.Setting,
             )
         }
 

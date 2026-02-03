@@ -5,10 +5,10 @@ import com.github.l34130.mise.core.command.MiseDevToolName
 import com.github.l34130.mise.core.setting.MiseProjectSettings
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.components.service
+import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.extensions.ExtensionPointName
 import kotlin.reflect.KClass
 
 abstract class AbstractProjectSdkSetup :
@@ -81,9 +81,20 @@ abstract class AbstractProjectSdkSetup :
 
     internal fun configurableClass(): KClass<out Configurable>? = getSettingsConfigurableClass<Configurable>()
 
+    sealed interface SdkLocation {
+        data object Project : SdkLocation
+
+        data class Module(val name: String) : SdkLocation
+
+        data object Setting : SdkLocation
+
+        data class Custom(val label: String) : SdkLocation
+    }
+
     sealed interface SdkStatus {
         data class NeedsUpdate(
             val currentSdkVersion: String?,
+            val currentSdkLocation: SdkLocation? = null,
         ) : SdkStatus
 
         object UpToDate : SdkStatus

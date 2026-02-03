@@ -52,7 +52,7 @@ internal class InstallCoordinator(
             if (!isUserInteraction) {
                 notificationService.info(
                     "Installing $displayName via mise",
-                    "Running `$installCommandLabel` to satisfy ${devToolName.value}@${tool.shimsVersion()}",
+                    "Running `$installCommandLabel` to satisfy ${devToolName.value}@${tool.displayVersion}",
                 )
             }
             runInstall()
@@ -60,7 +60,7 @@ internal class InstallCoordinator(
         }
 
         notificationService.warn(
-            "$devToolName@${tool.shimsVersion()} is not installed",
+            "$devToolName@${tool.displayVersion} is not installed",
             "Run `$installCommandLabel` to install the tool",
         ) { notification ->
             notification.addAction(

@@ -32,6 +32,7 @@ class MiseProjectInterpreterSetup : AbstractProjectSdkSetup() {
         if (currentInterpreter == null || !currentInterpreter.deepEquals(newInterpreter)) {
             return SdkStatus.NeedsUpdate(
                 currentSdkVersion = currentInterpreter?.cachedVersion?.get()?.parsedVersion,
+                currentSdkLocation = SdkLocation.Setting,
             )
         }
 

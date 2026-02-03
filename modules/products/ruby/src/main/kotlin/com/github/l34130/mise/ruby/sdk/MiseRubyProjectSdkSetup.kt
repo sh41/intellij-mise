@@ -33,6 +33,7 @@ class MiseRubyProjectSdkSetup : AbstractProjectSdkSetup() {
         if (currentSdk == null || currentSdk.name != newSdk.name && currentSdk.homePath != newSdk.homePath) {
             return SdkStatus.NeedsUpdate(
                 currentSdkVersion = currentSdk?.versionString,
+                currentSdkLocation = SdkLocation.Project,
             )
         }
 

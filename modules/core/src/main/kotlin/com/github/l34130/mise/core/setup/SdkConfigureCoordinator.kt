@@ -24,23 +24,23 @@ internal class SdkConfigureCoordinator(
             val status = provider.checkSdkStatusInternal(tool, project)
             when (status) {
                 is AbstractProjectSdkSetup.SdkStatus.NeedsUpdate -> {
+                    val titleQualifier = formatTitleQualifier(status.currentSdkLocation)
+                    val titleSuffix = titleQualifier?.let { " ($it)" }.orEmpty()
                     val title =
                         if (status.currentSdkVersion == null) {
-                            "${devToolName.canonicalName()} Not Configured"
+                            "${devToolName.canonicalName()} Not Configured$titleSuffix"
                         } else {
-                            "${devToolName.canonicalName()} Version Mismatch"
+                            "${devToolName.canonicalName()} Version Mismatch$titleSuffix"
                         }
 
                     val description =
                         if (status.currentSdkVersion == null) {
-                            "Configure as '${devToolName.value}@${tool.version}'"
+                            "Configure as '${devToolName.value}@${tool.displayVersion}'"
                         } else {
+                            val currentLabel = formatLocationLabel(status.currentSdkLocation)
                             buildString {
-                                append("Project: ${status.currentSdkVersion} <br/>")
-                                append("Mise: <b>${tool.requestedVersion}</b>")
-                                if (tool.requestedVersion != tool.version) {
-                                    append(" (${tool.version})")
-                                }
+                                append("$currentLabel: ${status.currentSdkVersion} <br/>")
+                                append("Mise: <b>${devToolName.canonicalName()} ${tool.displayVersionWithResolved}</b>")
                             }
                         }
 
@@ -49,11 +49,11 @@ internal class SdkConfigureCoordinator(
                         if (isAuto) {
                             notificationService.info(
                                 "Auto-configured $displayName",
-                                "Now using ${devToolName.value}@${tool.shimsVersion()}",
+                                "Now using ${devToolName.value}@${tool.displayVersionWithResolved}",
                             )
                         } else {
                             notificationService.info(
-                                "${devToolName.canonicalName()} is configured to ${tool.shimsVersion()}",
+                                "${devToolName.canonicalName()} is configured to ${tool.displayVersionWithResolved}",
                                 ""
                             )
                         }
@@ -84,15 +84,34 @@ internal class SdkConfigureCoordinator(
 
                     notificationService.info(
                         "${devToolName.canonicalName()} is up to date",
-                        "Currently using ${devToolName.value}@${tool.shimsVersion()}",
+                        "Currently using ${devToolName.value}@${tool.displayVersion}",
                     )
                 }
             }
         } catch (e: Throwable) {
             notificationService.error(
-                "Failed to set ${devToolName.canonicalName()} to ${devToolName.value}@${tool.shimsVersion()}",
+                "Failed to set ${devToolName.canonicalName()} to ${devToolName.value}@${tool.displayVersion}",
                 e.message ?: e.javaClass.simpleName,
             )
+        }
+    }
+
+    private fun formatTitleQualifier(location: AbstractProjectSdkSetup.SdkLocation?): String? {
+        return when (location) {
+            AbstractProjectSdkSetup.SdkLocation.Project -> null
+            AbstractProjectSdkSetup.SdkLocation.Setting -> "Setting"
+            is AbstractProjectSdkSetup.SdkLocation.Module -> "Module: ${location.name}"
+            is AbstractProjectSdkSetup.SdkLocation.Custom -> "Custom: ${location.label}"
+            null -> null
+        }
+    }
+
+    private fun formatLocationLabel(location: AbstractProjectSdkSetup.SdkLocation?): String {
+        return when (location) {
+            AbstractProjectSdkSetup.SdkLocation.Project, null -> "Project"
+            AbstractProjectSdkSetup.SdkLocation.Setting -> "Setting"
+            is AbstractProjectSdkSetup.SdkLocation.Module -> "Module: ${location.name}"
+            is AbstractProjectSdkSetup.SdkLocation.Custom -> "Custom: ${location.label}"
         }
     }
 }

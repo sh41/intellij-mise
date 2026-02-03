@@ -32,6 +32,7 @@ class MiseProjectDenoSetup : AbstractProjectSdkSetup() {
         } else {
             SdkStatus.NeedsUpdate(
                 currentSdkVersion = null,
+                currentSdkLocation = SdkLocation.Setting,
             )
         }
     }
