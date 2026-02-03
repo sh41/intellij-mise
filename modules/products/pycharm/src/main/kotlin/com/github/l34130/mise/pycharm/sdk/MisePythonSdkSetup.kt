@@ -6,15 +6,24 @@ import com.github.l34130.mise.core.command.MiseDevToolName
 import com.github.l34130.mise.core.setting.MiseProjectSettings
 import com.github.l34130.mise.core.setup.AbstractProjectSdkSetup
 import com.github.l34130.mise.core.util.guessMiseProjectPath
-import com.github.l34130.mise.core.wsl.WslPathUtils
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.module.Module
+import com.intellij.openapi.module.ModuleManager
+import com.intellij.openapi.module.ModuleType
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.projectRoots.impl.ProjectJdkImpl
+import com.intellij.openapi.roots.ModuleRootManager
+import com.intellij.openapi.roots.ModuleRootModificationUtil
 import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.openapi.util.io.FileUtil
+import com.intellij.util.PlatformUtils
+import com.jetbrains.python.PythonModuleTypeBase
 import com.jetbrains.python.sdk.PythonSdkType
 import com.jetbrains.python.sdk.PythonSdkUtil
 import kotlin.reflect.KClass
@@ -30,13 +39,42 @@ class MisePythonSdkSetup : AbstractProjectSdkSetup() {
     ): SdkStatus {
         checkUvEnabled(project)
 
-        val currentSdk: Sdk? =
-            ReadAction.compute<Sdk?, Throwable> {
-                ProjectRootManager.getInstance(project).projectSdk
-            }
-        val newSdk = tool.asUvSdk(project)
+        val desiredHomePath = tool.resolvePythonPath(project)
+        val targetModules = resolveTargetModules(project)
 
-        if (currentSdk == null || !currentSdk.homePath.equals(newSdk.homePath)) {
+        if (logger.isTraceEnabled) {
+            val moduleNames = targetModules.joinToString { it.name }
+            logger.trace("Python SDK check: desiredHomePath='$desiredHomePath', targetModules=[$moduleNames]")
+        }
+
+        if (targetModules.isEmpty()) {
+            if (logger.isTraceEnabled) {
+                logger.trace("Python SDK check: no target modules found.")
+            }
+            return SdkStatus.NeedsUpdate(currentSdkVersion = null)
+        }
+
+        val mismatchModule =
+            ReadAction.compute<Module?, Throwable> {
+                targetModules.firstOrNull { module ->
+                    val sdk = resolveModulePythonSdk(module)
+                    val sdkHomePath = sdk?.homePath
+                    val matches = sdkHomePath != null && FileUtil.pathsEqual(sdkHomePath, desiredHomePath)
+                    if (logger.isTraceEnabled) {
+                        logger.trace(
+                            "Python SDK module check: module='${module.name}', " +
+                                "sdk='${sdk?.name}', sdkHomePath='$sdkHomePath', matches=$matches"
+                        )
+                    }
+                    !matches
+                }
+            }
+
+        if (mismatchModule != null) {
+            val currentSdk =
+                ReadAction.compute<Sdk?, Throwable> {
+                    resolveModulePythonSdk(mismatchModule)
+                }
             return SdkStatus.NeedsUpdate(
                 currentSdkVersion = currentSdk?.versionString,
             )
@@ -49,10 +87,23 @@ class MisePythonSdkSetup : AbstractProjectSdkSetup() {
         tool: MiseDevTool,
         project: Project,
     ) {
-        val newSdk = tool.asUvSdk(project)
+        val newSdk = tool.ensureUvSdk(project)
+        val targetModules = resolveTargetModules(project)
+        if (targetModules.isEmpty()) return
 
+        if (logger.isTraceEnabled) {
+            val moduleNames = targetModules.joinToString { it.name }
+            logger.trace("Applying Python SDK '${newSdk.name}' to modules=[$moduleNames]")
+        }
+
+        val shouldSetProjectSdk = PlatformUtils.isPyCharm() || PlatformUtils.isDataSpell()
         WriteAction.computeAndWait<Unit, Throwable> {
-            ProjectRootManager.getInstance(project).projectSdk = newSdk
+            if (shouldSetProjectSdk) {
+                ProjectRootManager.getInstance(project).projectSdk = newSdk
+            }
+            targetModules.forEach { module ->
+                ModuleRootModificationUtil.setModuleSdk(module, newSdk)
+            }
         }
     }
 
@@ -72,40 +123,74 @@ class MisePythonSdkSetup : AbstractProjectSdkSetup() {
             throw UnsupportedOperationException("Mise Python SDK setup requires 'settings.python.uv_venv_auto' to be true.")
         }
     }
+}
 
-    private fun MiseDevTool.asUvSdk(project: Project): Sdk {
-        val exists = PythonSdkUtil.getAllSdks().firstOrNull { it.name == uvSdkName() }
-        if (exists != null) {
-            return exists
+private fun MiseDevTool.resolvePythonPath(project: Project): String {
+    return MiseCommandLineHelper.getBinPath("python", project)
+        .getOrElse { throw IllegalStateException("Failed to find Python executable ($resolvedInstallPath): ${it.message}", it) }
+}
+
+private fun MiseDevTool.ensureUvSdk(project: Project): Sdk {
+    val sdkName = uvSdkName()
+    val sdk = ProjectJdkImpl(
+        sdkName,
+        PythonSdkType.getInstance(),
+        resolvePythonPath(project),
+        resolvedVersion,
+    )
+
+    val registeredSdk =
+        WriteAction.computeAndWait<Sdk, Throwable> {
+        val table = ProjectJdkTable.getInstance()
+        val existing = PythonSdkUtil.getAllSdks().firstOrNull { it.name == sdkName }
+        if (existing == null) {
+            table.addJdk(sdk)
+            sdk
+        } else {
+            table.updateJdk(existing, sdk)
+            existing
         }
-
-        val configEnvironment = project.service<MiseProjectSettings>().state.miseConfigEnvironment
-
-        // Get Python path from 'which python' command (returns Unix path in WSL)
-        val pythonUnixPath =
-            MiseCommandLineHelper
-                .executeCommand(project, project.guessMiseProjectPath(), configEnvironment, listOf("which", "python"))
-                .getOrElse { throw IllegalStateException("Failed to find Python executable: ${it.message}") }
-                .trim()
-
-        // Convert to Windows UNC path if in WSL mode using the shared utility
-        val pythonPath = WslPathUtils.convertUnixPathForWsl(pythonUnixPath)
-
-        // Get Python version
-        val pythonVersion =
-            MiseCommandLineHelper
-                .executeCommand(project, project.guessMiseProjectPath(), configEnvironment, listOf("python", "--version"))
-                .getOrElse { throw IllegalStateException("Failed to get Python version: ${it.message}") }
-                .replace("Python ", "")
-                .trim()
-
-        return ProjectJdkImpl(
-            uvSdkName(),
-            PythonSdkType.getInstance(),
-            pythonPath,
-            pythonVersion,
-        )
     }
 
-    private fun MiseDevTool.uvSdkName() = "uv (python)"
+    PythonSdkType.getInstance().setupSdkPaths(registeredSdk)
+    return registeredSdk
 }
+
+private fun resolveTargetModules(project: Project): List<Module> {
+    return ReadAction.compute<List<Module>, Throwable> {
+        val modules = ModuleManager.getInstance(project).modules.toList()
+        if (modules.isEmpty()) return@compute emptyList()
+
+        val pythonModules = modules.filter { ModuleType.get(it) is PythonModuleTypeBase<*> }
+        if (pythonModules.isNotEmpty()) return@compute pythonModules
+
+        val configuredModules = modules.filter { resolveModulePythonSdk(it) != null }
+        if (configuredModules.isNotEmpty()) return@compute configuredModules
+
+        if (modules.size == 1) return@compute modules
+
+        val basePath = project.basePath ?: return@compute emptyList()
+        val baseModule =
+            modules.firstOrNull { module ->
+                ModuleRootManager.getInstance(module).contentRoots.any { it.path == basePath }
+            }
+        baseModule?.let { listOf(it) } ?: emptyList()
+    }
+}
+
+private fun resolveModulePythonSdk(module: Module): Sdk? {
+    val moduleSdk = ModuleRootManager.getInstance(module).sdk
+    if (moduleSdk != null && PythonSdkUtil.isPythonSdk(moduleSdk)) return moduleSdk
+    return PythonSdkUtil.findPythonSdk(module)
+}
+
+private fun MiseDevTool.uvSdkName(): String {
+    val displayVersion = this.displayVersion
+    return if (displayVersion.isBlank()) {
+        "uv (python)"
+    } else {
+        "uv (python $displayVersion)"
+    }
+}
+
+private val logger = logger<MisePythonSdkSetup>()
