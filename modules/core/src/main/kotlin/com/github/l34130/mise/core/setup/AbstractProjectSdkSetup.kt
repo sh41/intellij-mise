@@ -95,6 +95,11 @@ abstract class AbstractProjectSdkSetup :
         data class NeedsUpdate(
             val currentSdkVersion: String?,
             val currentSdkLocation: SdkLocation? = null,
+            val configureAction: ((Boolean) -> Unit)? = null,
+        ) : SdkStatus
+
+        data class MultipleNeedsUpdate(
+            val updates: List<NeedsUpdate>,
         ) : SdkStatus
 
         object UpToDate : SdkStatus

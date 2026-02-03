@@ -23,60 +23,31 @@ internal class SdkConfigureCoordinator(
         try {
             val status = provider.checkSdkStatusInternal(tool, project)
             when (status) {
-                is AbstractProjectSdkSetup.SdkStatus.NeedsUpdate -> {
-                    val titleQualifier = formatTitleQualifier(status.currentSdkLocation)
-                    val titleSuffix = titleQualifier?.let { " ($it)" }.orEmpty()
-                    val title =
-                        if (status.currentSdkVersion == null) {
-                            "${devToolName.canonicalName()} Not Configured$titleSuffix"
-                        } else {
-                            "${devToolName.canonicalName()} Version Mismatch$titleSuffix"
-                        }
-
-                    val description =
-                        if (status.currentSdkVersion == null) {
-                            "Configure as '${devToolName.value}@${tool.displayVersion}'"
-                        } else {
-                            val currentLabel = formatLocationLabel(status.currentSdkLocation)
-                            buildString {
-                                append("$currentLabel: ${status.currentSdkVersion} <br/>")
-                                append("Mise: <b>${devToolName.canonicalName()} ${tool.displayVersionWithResolved}</b>")
-                            }
-                        }
-
-                    val applyAction: (Boolean) -> Unit = { isAuto ->
-                        provider.applySdkConfigurationInternal(tool, project)
-                        if (isAuto) {
-                            notificationService.info(
-                                "Auto-configured $displayName",
-                                "Now using ${devToolName.value}@${tool.displayVersionWithResolved}",
-                            )
-                        } else {
-                            notificationService.info(
-                                "${devToolName.canonicalName()} is configured to ${tool.displayVersionWithResolved}",
-                                ""
-                            )
-                        }
-                    }
-
-                    when {
-                        isUserInteraction -> applyAction(false)
-                        autoConfigureEnabled -> applyAction(true)
-                        else -> {
-                            notificationService.info(title, description) { notification ->
-                                notification.addAction(
-                                    NotificationAction.createSimpleExpiring("Configure now") {
-                                        applyAction(false)
-                                    }
-                                )
-                                notification.addAction(
-                                    NotificationAction.createSimpleExpiring("Always keep $displayName in sync") {
-                                        settingsUpdater.update(project, provider, autoConfigure = true)
-                                        applyAction(true)
-                                    }
-                                )
-                            }
-                        }
+                is AbstractProjectSdkSetup.SdkStatus.NeedsUpdate ->
+                    handleNeedsUpdate(
+                        status,
+                        project,
+                        provider,
+                        tool,
+                        devToolName,
+                        displayName,
+                        isUserInteraction,
+                        autoConfigureEnabled,
+                        notificationService,
+                    )
+                is AbstractProjectSdkSetup.SdkStatus.MultipleNeedsUpdate -> {
+                    status.updates.forEach { update ->
+                        handleNeedsUpdate(
+                            update,
+                            project,
+                            provider,
+                            tool,
+                            devToolName,
+                            displayName,
+                            isUserInteraction,
+                            autoConfigureEnabled,
+                            notificationService,
+                        )
                     }
                 }
                 AbstractProjectSdkSetup.SdkStatus.UpToDate -> {
@@ -93,6 +64,74 @@ internal class SdkConfigureCoordinator(
                 "Failed to set ${devToolName.canonicalName()} to ${devToolName.value}@${tool.displayVersion}",
                 e.message ?: e.javaClass.simpleName,
             )
+        }
+    }
+
+    private fun handleNeedsUpdate(
+        status: AbstractProjectSdkSetup.SdkStatus.NeedsUpdate,
+        project: Project,
+        provider: AbstractProjectSdkSetup,
+        tool: MiseDevTool,
+        devToolName: MiseDevToolName,
+        displayName: String,
+        isUserInteraction: Boolean,
+        autoConfigureEnabled: Boolean,
+        notificationService: MiseNotificationService,
+    ) {
+        val titleQualifier = formatTitleQualifier(status.currentSdkLocation)
+        val titleSuffix = titleQualifier?.let { " ($it)" }.orEmpty()
+        val title =
+            if (status.currentSdkVersion == null) {
+                "${devToolName.canonicalName()} Not Configured$titleSuffix"
+            } else {
+                "${devToolName.canonicalName()} Version Mismatch$titleSuffix"
+            }
+
+        val description =
+            if (status.currentSdkVersion == null) {
+                "Configure as '${devToolName.value}@${tool.displayVersion}'"
+            } else {
+                val currentLabel = formatLocationLabel(status.currentSdkLocation)
+                buildString {
+                    append("$currentLabel: ${status.currentSdkVersion} <br/>")
+                    append("Mise: <b>${devToolName.canonicalName()} ${tool.displayVersionWithResolved}</b>")
+                }
+            }
+
+        val configureAction = status.configureAction ?: { provider.applySdkConfigurationInternal(tool, project) }
+        val applyAction: (Boolean) -> Unit = { isAuto ->
+            configureAction(isAuto)
+            if (isAuto) {
+                notificationService.info(
+                    "Auto-configured $displayName",
+                    "Now using ${devToolName.value}@${tool.displayVersionWithResolved}",
+                )
+            } else {
+                notificationService.info(
+                    "${devToolName.canonicalName()} is configured to ${tool.displayVersionWithResolved}",
+                    ""
+                )
+            }
+        }
+
+        when {
+            isUserInteraction -> applyAction(false)
+            autoConfigureEnabled -> applyAction(true)
+            else -> {
+                notificationService.info(title, description) { notification ->
+                    notification.addAction(
+                        NotificationAction.createSimpleExpiring("Configure now") {
+                            applyAction(false)
+                        }
+                    )
+                    notification.addAction(
+                        NotificationAction.createSimpleExpiring("Always keep $displayName in sync") {
+                            settingsUpdater.update(project, provider, autoConfigure = true)
+                            applyAction(true)
+                        }
+                    )
+                }
+            }
         }
     }
 

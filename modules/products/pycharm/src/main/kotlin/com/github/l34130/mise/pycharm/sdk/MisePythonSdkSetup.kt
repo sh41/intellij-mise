@@ -22,7 +22,6 @@ import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ModuleRootModificationUtil
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.util.PlatformUtils
 import com.jetbrains.python.PythonModuleTypeBase
 import com.jetbrains.python.sdk.PythonSdkType
 import com.jetbrains.python.sdk.PythonSdkUtil
@@ -41,71 +40,89 @@ class MisePythonSdkSetup : AbstractProjectSdkSetup() {
 
         val desiredHomePath = tool.resolvePythonPath(project)
         val targetModules = resolveTargetModules(project)
+        val projectPythonSdk =
+            ReadAction.compute<Sdk?, Throwable> {
+                resolveProjectPythonSdk(project)
+            }
+        val projectSdkHomePath = projectPythonSdk?.homePath
+        val projectMatches = projectSdkHomePath != null && FileUtil.pathsEqual(projectSdkHomePath, desiredHomePath)
 
         if (logger.isTraceEnabled) {
             val moduleNames = targetModules.joinToString { it.name }
-            logger.trace("Python SDK check: desiredHomePath='$desiredHomePath', targetModules=[$moduleNames]")
-        }
-
-        if (targetModules.isEmpty()) {
-            if (logger.isTraceEnabled) {
-                logger.trace("Python SDK check: no target modules found.")
-            }
-            return SdkStatus.NeedsUpdate(currentSdkVersion = null)
-        }
-
-        val mismatchModule =
-            ReadAction.compute<Module?, Throwable> {
-                targetModules.firstOrNull { module ->
-                    val sdk = resolveModulePythonSdk(module)
-                    val sdkHomePath = sdk?.homePath
-                    val matches = sdkHomePath != null && FileUtil.pathsEqual(sdkHomePath, desiredHomePath)
-                    if (logger.isTraceEnabled) {
-                        logger.trace(
-                            "Python SDK module check: module='${module.name}', " +
-                                "sdk='${sdk?.name}', sdkHomePath='$sdkHomePath', matches=$matches"
-                        )
-                    }
-                    !matches
-                }
-            }
-
-        if (mismatchModule != null) {
-            val currentSdk =
-                ReadAction.compute<Sdk?, Throwable> {
-                    resolveModulePythonSdk(mismatchModule)
-                }
-            return SdkStatus.NeedsUpdate(
-                currentSdkVersion = currentSdk?.versionString,
-                currentSdkLocation = SdkLocation.Module(mismatchModule.name),
+            logger.trace(
+                "Python SDK check: desiredHomePath='$desiredHomePath', " +
+                    "projectSdk='${projectPythonSdk?.name}', targetModules=[$moduleNames]"
             )
         }
 
-        return SdkStatus.UpToDate
+        val updates = mutableListOf<SdkStatus.NeedsUpdate>()
+
+        if (projectPythonSdk != null && !projectMatches) {
+            updates.add(
+                SdkStatus.NeedsUpdate(
+                    currentSdkVersion = projectPythonSdk.versionString,
+                    currentSdkLocation = SdkLocation.Project,
+                    configureAction = { applyProjectSdk(tool, project) },
+                )
+            )
+        }
+
+        if (targetModules.isNotEmpty()) {
+            val moduleUpdates =
+                ReadAction.compute<List<SdkStatus.NeedsUpdate>, Throwable> {
+                    targetModules.mapNotNull { module ->
+                        val rootManager = ModuleRootManager.getInstance(module)
+                        val isInherited = rootManager.isSdkInherited || rootManager.sdk == null
+                        if (isInherited && projectPythonSdk != null) {
+                            if (logger.isTraceEnabled) {
+                                logger.trace("Python SDK module check: module='${module.name}', inherited=true, skipped")
+                            }
+                            return@mapNotNull null
+                        }
+
+                        val moduleSdk = rootManager.sdk
+                        val pythonModuleSdk = moduleSdk?.takeIf { PythonSdkUtil.isPythonSdk(it) }
+                        val sdkHomePath = pythonModuleSdk?.homePath
+                        val matches = sdkHomePath != null && FileUtil.pathsEqual(sdkHomePath, desiredHomePath)
+                        if (logger.isTraceEnabled) {
+                            logger.trace(
+                                "Python SDK module check: module='${module.name}', " +
+                                    "sdk='${pythonModuleSdk?.name}', sdkHomePath='$sdkHomePath', matches=$matches"
+                            )
+                        }
+                        if (matches) {
+                            return@mapNotNull null
+                        }
+
+                        SdkStatus.NeedsUpdate(
+                            currentSdkVersion = pythonModuleSdk?.versionString,
+                            currentSdkLocation = SdkLocation.Module(module.name),
+                            configureAction = { applyModuleSdk(tool, project, module) },
+                        )
+                    }
+                }
+            updates.addAll(moduleUpdates)
+        }
+
+        if (updates.isEmpty()) {
+            if (logger.isTraceEnabled && targetModules.isEmpty()) {
+                logger.trace("Python SDK check: no target modules found and no mismatches detected.")
+            }
+            return SdkStatus.UpToDate
+        }
+
+        return if (updates.size == 1) {
+            updates.first()
+        } else {
+            SdkStatus.MultipleNeedsUpdate(updates)
+        }
     }
 
     override fun applySdkConfiguration(
         tool: MiseDevTool,
         project: Project,
     ) {
-        val newSdk = tool.ensureUvSdk(project)
-        val targetModules = resolveTargetModules(project)
-        if (targetModules.isEmpty()) return
-
-        if (logger.isTraceEnabled) {
-            val moduleNames = targetModules.joinToString { it.name }
-            logger.trace("Applying Python SDK '${newSdk.name}' to modules=[$moduleNames]")
-        }
-
-        val shouldSetProjectSdk = PlatformUtils.isPyCharm() || PlatformUtils.isDataSpell()
-        WriteAction.computeAndWait<Unit, Throwable> {
-            if (shouldSetProjectSdk) {
-                ProjectRootManager.getInstance(project).projectSdk = newSdk
-            }
-            targetModules.forEach { module ->
-                ModuleRootModificationUtil.setModuleSdk(module, newSdk)
-            }
-        }
+        applyProjectSdk(tool, project)
     }
 
     override fun <T : Configurable> getSettingsConfigurableClass(): KClass<out T>? = null
@@ -155,6 +172,32 @@ private fun MiseDevTool.ensureUvSdk(project: Project): Sdk {
 
     PythonSdkType.getInstance().setupSdkPaths(registeredSdk)
     return registeredSdk
+}
+
+private fun resolveProjectPythonSdk(project: Project): Sdk? {
+    val projectSdk = ProjectRootManager.getInstance(project).projectSdk
+    return projectSdk?.takeIf { PythonSdkUtil.isPythonSdk(it) }
+}
+
+private fun applyProjectSdk(
+    tool: MiseDevTool,
+    project: Project,
+) {
+    val newSdk = tool.ensureUvSdk(project)
+    WriteAction.computeAndWait<Unit, Throwable> {
+        ProjectRootManager.getInstance(project).projectSdk = newSdk
+    }
+}
+
+private fun applyModuleSdk(
+    tool: MiseDevTool,
+    project: Project,
+    module: Module,
+) {
+    val newSdk = tool.ensureUvSdk(project)
+    WriteAction.computeAndWait<Unit, Throwable> {
+        ModuleRootModificationUtil.setModuleSdk(module, newSdk)
+    }
 }
 
 private fun resolveTargetModules(project: Project): List<Module> {
