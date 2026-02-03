@@ -1,6 +1,6 @@
 package com.github.l34130.mise.nodejs.node
 
-import com.github.l34130.mise.core.ShimUtils
+import com.github.l34130.mise.core.command.MiseCommandLineHelper
 import com.github.l34130.mise.core.command.MiseDevTool
 import com.github.l34130.mise.core.command.MiseDevToolName
 import com.github.l34130.mise.core.setup.AbstractProjectSdkSetup
@@ -12,7 +12,6 @@ import com.intellij.javascript.nodejs.util.NodePackage
 import com.intellij.javascript.nodejs.util.NodePackageRef
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.WriteAction
-import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
@@ -63,7 +62,8 @@ class MiseProjectPackageSetup : AbstractProjectSdkSetup() {
     }
 
     @Suppress("UNCHECKED_CAST")
-    override fun <T : Configurable> getSettingsConfigurableClass(): KClass<out T> = NodeSettingsConfigurable::class as KClass<out T>
+    override fun <T : Configurable> getSettingsConfigurableClass(): KClass<out T> =
+        NodeSettingsConfigurable::class as KClass<out T>
 
     private fun inspectPackageManager(project: Project): String {
         val basePath =
@@ -85,15 +85,13 @@ class MiseProjectPackageSetup : AbstractProjectSdkSetup() {
 
     private fun MiseDevTool.asPackage(project: Project): NodePackage {
         val devToolName = getDevToolName(project).value
-        val path = ShimUtils.findExecutable(resolvedInstallPath, devToolName).path
+
+        val path = MiseCommandLineHelper.getBinPath(devToolName, project)
+            .getOrElse { throw IllegalStateException("Failed to find $devToolName executable: ${it.message}", it) }
         val nodePackage = NpmUtil.DESCRIPTOR.createPackage(path)
         check(nodePackage.isValid(project, null)) {
             "Failed to create NodePackage for $devToolName at path: $resolvedInstallPath (resolved to $path)"
         }
         return nodePackage
-    }
-
-    companion object {
-        private val logger = logger<MiseProjectPackageSetup>()
     }
 }
